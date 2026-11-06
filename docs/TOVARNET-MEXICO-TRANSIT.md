@@ -19,6 +19,7 @@ Phase 1 adds a native, static network layer derived from the official 2026 Metro
 - Route geometry simplified at approximately 5 m tolerance before bundling.
 - Station points are displayed only inside 60 km camera distance.
 - Runtime data is gzip-compressed and loaded only after the layer is enabled.
+- Phase 1 is `local-only`: it is intentionally excluded from shared/persisted layer-state tokens until the realtime integration is mature.
 - Original high-volume schedule and stop-time tables are not bundled.
 
 The layer is intentionally static. It shows infrastructure, not live buses.
