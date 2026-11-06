@@ -1,6 +1,6 @@
 # TovarNet Labs · Mexico Transit
 
-This fork keeps Mexican transit work isolated from the upstream application and from the currently deployed ATLAS build.
+This fork keeps Mexican transit work isolated from upstream and is now the source for the TovarNet Coolify ATLAS deployment.
 
 ## Baseline
 
@@ -36,3 +36,10 @@ The same architecture is intended for:
 - Va-y-Ven · Yucatán.
 
 Those providers require an official realtime interface or a documented read-only adapter before permanent integration.
+
+
+## Deployment checkpoint · 2026-11-06
+
+The `feature/mexico-transit` branch is running through Coolify and was validated over the private SSH tunnel. The native Metrobús layer rendered 7 lines and 378 stations successfully.
+
+Deployment details and remaining public-domain / Authelia steps are documented in [TOVARNET-COOLIFY.md](TOVARNET-COOLIFY.md).
