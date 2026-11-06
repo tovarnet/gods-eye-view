@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    labels:
+      - "coolify.traefik.middlewares=tnl-authelia-auth@file"
     environment:
       GEV_ALLOWED_HOSTS: ${GEV_ALLOWED_HOSTS}
       GEV_KEY_SETUP_TRUSTED_PEERS: ${GEV_KEY_SETUP_TRUSTED_PEERS:-}
