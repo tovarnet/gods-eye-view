@@ -664,11 +664,6 @@ export const LAYER_STATE_REGISTRY = Object.freeze([
     optionOwner: 'local-firms',
   }),
   Object.freeze({
-    id: 'metrobus-cdmx',
-    token: '00',
-    disposition: 'enabled-only',
-  }),
-  Object.freeze({
     id: 'military',
     token: 'm',
     disposition: 'enabled+mirrored-options',
