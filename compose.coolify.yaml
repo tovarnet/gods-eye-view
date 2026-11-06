@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       GEV_ALLOWED_HOSTS: ${GEV_ALLOWED_HOSTS}
-      GEV_KEY_SETUP_TRUSTED_PEERS: ${GEV_KEY_SETUP_TRUSTED_PEERS:-none}
+      GEV_KEY_SETUP_TRUSTED_PEERS: ${GEV_KEY_SETUP_TRUSTED_PEERS:-}
     expose:
       - "4173"
     ports:
