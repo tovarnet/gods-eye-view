@@ -316,6 +316,17 @@ const layers = [
     },
   },
   {
+    id: 'metrobus-cdmx',
+    aliases: [
+      'metrobús cdmx',
+      'metrobus cdmx',
+      'metrobús ciudad de méxico',
+      'metrobus ciudad de mexico',
+    ],
+    context: false,
+    noQuery: 'static GTFS network; no live vehicle records yet',
+  },
+  {
     id: 'bikeshare',
     aliases: ['bike share', 'bikes', 'bike stations'],
     context: false,
