@@ -40,7 +40,7 @@ test('catalogs construct distinct layers and classification from their supplied 
     signal: b.signal,
     surface: fixtureSurface(b.signal),
   });
-  assert.equal(first.layers.length, 38);
+  assert.equal(first.layers.length, 39);
   assert.ok(first.get('local-adsb'), 'Local ADS-B is registered');
   assert.deepEqual(
     first.metadata.find(({ id }) => id === 'osm-places'),
@@ -51,6 +51,11 @@ test('catalogs construct distinct layers and classification from their supplied 
     first.metadata.find(({ id }) => id === 'local-adsb'),
     { id: 'local-adsb', disposition: 'local-only' },
     'the hardware-local layer is never serialized into links',
+  );
+  assert.deepEqual(
+    first.metadata.find(({ id }) => id === 'metrobus-cdmx'),
+    { id: 'metrobus-cdmx', disposition: 'local-only' },
+    'experimental Metrobús stays out of shared layer state until realtime matures',
   );
   assert.notEqual(first.weatherClock, second.weatherClock);
   await first.weatherClock.setTarget('2026-09-21T12:00:00.000Z');
@@ -72,7 +77,15 @@ test('catalogs construct distinct layers and classification from their supplied 
   const order = first.layers.map(({ id }) => id);
   assert.deepEqual(
     order.slice(order.indexOf('traffic'), order.indexOf('directions') + 1),
-    ['traffic', 'cctv', 'radio', 'transit', 'bikeshare', 'directions'],
+    [
+      'traffic',
+      'cctv',
+      'radio',
+      'transit',
+      'metrobus-cdmx',
+      'bikeshare',
+      'directions',
+    ],
   );
   assert.ok(first.get('bhote-koshi-2026'));
   assert.ok(first.get('bhote-koshi-locator'));
@@ -161,7 +174,7 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
     surface: fixtureSurface(lifetime.signal),
   };
   const catalog = createApplicationCatalog(options);
-  assert.equal(catalog.layers.length, 38);
+  assert.equal(catalog.layers.length, 39);
   assert.deepEqual(catalog.get('street-level').providerIds, []);
   assert.equal(
     catalogControlServices(catalog).streetLevelLayer,
