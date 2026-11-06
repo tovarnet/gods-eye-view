@@ -48,6 +48,8 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
   Object.freeze({ id: 'local-adsb', disposition: 'local-only' }),
   // Voice search results belong to this session, like a receiver to this machine.
   Object.freeze({ id: 'osm-places', disposition: 'local-only' }),
+  // Experimental TovarNet static network; keep share-state codec untouched until realtime matures.
+  Object.freeze({ id: 'metrobus-cdmx', disposition: 'local-only' }),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
