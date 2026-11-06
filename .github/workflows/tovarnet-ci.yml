@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/mexico-transit
+  pull_request:
+    branches:
+      - production/atlas-ad009ea
   workflow_dispatch:
 
 permissions:
