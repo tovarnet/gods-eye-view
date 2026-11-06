@@ -1,0 +1,13 @@
+services:
+  atlas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      GEV_ALLOWED_HOSTS: ${GEV_ALLOWED_HOSTS}
+      GEV_KEY_SETUP_TRUSTED_PEERS: ${GEV_KEY_SETUP_TRUSTED_PEERS:-none}
+    expose:
+      - "4173"
+    ports:
+      - "127.0.0.1:${ATLAS_LOOPBACK_PORT:-4174}:4173"
