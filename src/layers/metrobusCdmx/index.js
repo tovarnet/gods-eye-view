@@ -134,7 +134,7 @@ export function createMetrobusCdmxLayer({
       } catch (error) {
         if (request.signal.aborted || _request !== request || !_enabled)
           return false;
-        _lastError = error?.message || 'Metrobús dataset unavailable';
+        _lastError = error?.message || null;
         return false;
       } finally {
         if (_request === request) _request = null;
@@ -168,7 +168,7 @@ export function createMetrobusCdmxLayer({
       return {
         chips: [],
         legend: (_network?.lines || []).map((line) => ({
-          label: `Línea ${line.id}`,
+          label: String(line.id),
           color: line.color,
           count: line.routeCount,
         })),
