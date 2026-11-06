@@ -32,7 +32,6 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'local-adsb': msg('Local ADS-B'),
   'osm-places': msg('OSM Places'),
   transit: msg('Transit'),
-  'metrobus-cdmx': msg('Metrobús CDMX'),
   'recent-imagery': msg('Recent Imagery'),
   'fire-perimeters': msg('Fire Perimeters'),
   'gnss-integrity': msg('GNSS Integrity'),
