@@ -28,6 +28,12 @@ jobs:
         run: npm ci
       - name: Doctor
         run: npm run doctor
+      - name: Coolify Compose
+        env:
+          GEV_ALLOWED_HOSTS: atlas-lab.tovarnet.com.mx
+          GEV_KEY_SETUP_TRUSTED_PEERS: none
+          ATLAS_LOOPBACK_PORT: "4174"
+        run: docker compose -f compose.coolify.yaml config >/dev/null
       - name: Format
         run: npm run format:check
       - name: Boundaries
