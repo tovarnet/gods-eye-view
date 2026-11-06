@@ -316,17 +316,6 @@ const layers = [
     },
   },
   {
-    id: 'metrobus-cdmx',
-    aliases: [
-      'metrobús cdmx',
-      'metrobus cdmx',
-      'metrobús ciudad de méxico',
-      'metrobus ciudad de mexico',
-    ],
-    context: false,
-    noQuery: 'static GTFS network; no live vehicle records yet',
-  },
-  {
     id: 'bikeshare',
     aliases: ['bike share', 'bikes', 'bike stations'],
     context: false,
@@ -462,6 +451,8 @@ const layers = [
  * pair belong to a scripted scene and are driven by `control_scene`.
  */
 export const VOICE_OFF_LAYERS = Object.freeze({
+  'metrobus-cdmx':
+    'static GTFS network; voice integration waits for realtime transit',
   'bhote-koshi-2026': 'scene-driven event layer (control_scene)',
   'bhote-koshi-locator': 'scene-driven event layer (control_scene)',
   // The Realtime prompt is at its 55,500-character budget; voice toggle and
