@@ -36,8 +36,7 @@
     "iNaturalist",
     "iNaturalist ↗",
     "{source} HTTP {status}",
-    "▲ {frp} MW",
-    "Metrobús CDMX"
+    "▲ {frp} MW"
   ],
   "de": [
     "1090 MHz",
@@ -213,8 +212,7 @@
     "ΔN",
     "Ⅱ PAUSE",
     "≥ {value} MW",
-    "▲ {frp} MW",
-    "Metrobús CDMX"
+    "▲ {frp} MW"
   ],
   "es": [
     "1090 MHz",
@@ -353,8 +351,7 @@
     "Reptiles",
     "acartia.io ↗",
     "iNaturalist ↗",
-    "iNaturalist",
-    "Metrobús CDMX"
+    "iNaturalist"
   ],
   "fr": [
     "1090 MHz",
@@ -548,8 +545,7 @@
     "ΔN",
     "Ⅱ PAUSE",
     "≥ {value} MW",
-    "▲ {frp} MW",
-    "Metrobús CDMX"
+    "▲ {frp} MW"
   ],
   "it": [
     "1090 MHz",
@@ -729,8 +725,7 @@
     "CC BY 4.0",
     "acartia.io ↗",
     "iNaturalist ↗",
-    "iNaturalist",
-    "Metrobús CDMX"
+    "iNaturalist"
   ],
   "ja": [
     "1090 MHz",
@@ -785,8 +780,7 @@
     "ΔE",
     "ΔN",
     "≥ {value} MW",
-    "▲ {frp} MW",
-    "Metrobús CDMX"
+    "▲ {frp} MW"
   ],
   "pt": [
     "1090 MHz",
@@ -925,8 +919,7 @@
     "CC BY 4.0",
     "acartia.io ↗",
     "iNaturalist ↗",
-    "iNaturalist",
-    "Metrobús CDMX"
+    "iNaturalist"
   ],
   "ru": [
     "AIS: --",
@@ -949,8 +942,7 @@
     "WHOT/BHOT",
     "acartia.io ↗",
     "iNaturalist",
-    "iNaturalist ↗",
-    "Metrobús CDMX"
+    "iNaturalist ↗"
   ],
   "uk": [
     "AIS: --",
@@ -968,8 +960,7 @@
     "WHOT/BHOT",
     "acartia.io ↗",
     "iNaturalist",
-    "iNaturalist ↗",
-    "Metrobús CDMX"
+    "iNaturalist ↗"
   ],
   "zh-CN": [
     "1090 MHz",
@@ -1032,8 +1023,7 @@
     "CC BY 4.0",
     "acartia.io ↗",
     "iNaturalist ↗",
-    "iNaturalist",
-    "Metrobús CDMX"
+    "iNaturalist"
   ],
   "zh-Hant": [
     "1090 MHz",
@@ -1096,7 +1086,6 @@
     "CC BY 4.0",
     "acartia.io ↗",
     "iNaturalist ↗",
-    "iNaturalist",
-    "Metrobús CDMX"
+    "iNaturalist"
   ]
 }
