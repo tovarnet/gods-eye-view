@@ -276,6 +276,13 @@ export function createFlightSnapshotRenderer({
     // feed gap, and the full grace left phantom planes parked at airports.
     for (const [icao24, bb] of flightState._billboards) {
       if (currentIcaos.has(icao24)) continue;
+      // A viewport-scoped snapshot intentionally excludes off-view / thinned
+      // contacts. Remove them immediately instead of letting three poll cycles
+      // accumulate a ghost swarm from the previous camera position.
+      if (snapshot.viewportScoped) {
+        evictContact(icao24);
+        continue;
+      }
       const absence = records.absence(icao24, {
         complete: snapshot.complete,
         retainIds: snapshot.retainIds,

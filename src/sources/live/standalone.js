@@ -15,6 +15,106 @@ import { normalizeVesselTrack, vesselSnapshot } from './vessels.js';
 const defaultFetch = (...args) => globalThis.fetch(...args);
 const header = (response, name) => response.headers?.get?.(name);
 
+function greatCircleKm(lat1, lon1, lat2, lon2) {
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) *
+      Math.cos(lat2 * toRad) *
+      Math.sin(dLon / 2) ** 2;
+  return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function stableFlightRank(id) {
+  let hash = 2166136261;
+  for (const char of String(id || '')) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function flightPriority(record, trackedId) {
+  if (trackedId && record.id === trackedId) return 0;
+  if (
+    record.emergency ||
+    record.squawk === '7500' ||
+    record.squawk === '7600' ||
+    record.squawk === '7700'
+  )
+    return 1;
+  return 2;
+}
+
+/**
+ * Scope a real upstream snapshot to the operator's current view. This does not
+ * synthesize, extrapolate or alter positions; it only chooses which observed
+ * contacts are useful to render at the current zoom.
+ */
+export function scopeFlightSnapshot(snapshot, query = {}) {
+  const latitude = Number(query.latitude);
+  const longitude = Number(query.longitude);
+  const radiusKm = Number(query.radiusKm);
+  const maxRows = Math.max(1, Math.floor(Number(query.maxRows)));
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    !Number.isFinite(radiusKm) ||
+    radiusKm <= 0 ||
+    !Number.isFinite(maxRows)
+  )
+    return snapshot;
+
+  const trackedId = String(query.trackedId || '').trim().toLowerCase();
+  const candidates = [];
+  for (const record of snapshot.records || []) {
+    if (
+      !Number.isFinite(record.latitude) ||
+      !Number.isFinite(record.longitude)
+    )
+      continue;
+    const distanceKm = greatCircleKm(
+      latitude,
+      longitude,
+      record.latitude,
+      record.longitude,
+    );
+    if (record.id === trackedId || distanceKm <= radiusKm) {
+      candidates.push({ record, distanceKm });
+    }
+  }
+
+  let selected = candidates;
+  if (candidates.length > maxRows) {
+    selected = [...candidates]
+      .sort((a, b) => {
+        const priority =
+          flightPriority(a.record, trackedId) -
+          flightPriority(b.record, trackedId);
+        if (priority) return priority;
+        const rank = stableFlightRank(a.record.id) - stableFlightRank(b.record.id);
+        if (rank) return rank;
+        return a.distanceKm - b.distanceKm;
+      })
+      .slice(0, maxRows);
+  }
+
+  const records = selected.map(({ record }) => record);
+  const baseCoverage = String(snapshot.coverage || '').trim();
+  const viewCoverage = `view ${Math.round(radiusKm)} km · ${records.length}/${candidates.length} shown`;
+  return {
+    ...snapshot,
+    records,
+    retainIds: new Set(),
+    complete: true,
+    viewportScoped: true,
+    totalViewCandidates: candidates.length,
+    coverage: baseCoverage ? `${baseCoverage}; ${viewCoverage}` : viewCoverage,
+  };
+}
+
 function openSkyError(response) {
   const error = httpError(response, 'Flights');
   const mode = String(
@@ -71,6 +171,10 @@ export function createFlightSource({
         params.set('lat', query.latitude.toFixed(4));
         params.set('lon', query.longitude.toFixed(4));
       }
+      if (Number.isFinite(query.radiusKm))
+        params.set('radius_km', query.radiusKm.toFixed(1));
+      if (Number.isFinite(query.maxRows))
+        params.set('maxRows', String(Math.floor(query.maxRows)));
       const { response, payload } = await readResponse(
         fetchImpl,
         `/api/flights${params.size ? '?' + params : ''}`,
@@ -78,17 +182,18 @@ export function createFlightSource({
         'Flights',
       );
       if (!response.ok) throw openSkyError(response);
+      const snapshot = openSkySnapshot(payload, {
+        // A fallback provider names itself in X-Flight-Source.
+        source:
+          header(response, 'x-flight-source') ||
+          feedSource(response, 'Flights'),
+        coverage:
+          header(response, 'x-flight-coverage') ||
+          'worldwide upstream snapshot',
+        now: now(),
+      });
       return {
-        ...openSkySnapshot(payload, {
-          // A fallback provider names itself in X-Flight-Source.
-          source:
-            header(response, 'x-flight-source') ||
-            feedSource(response, 'Flights'),
-          coverage:
-            header(response, 'x-flight-coverage') ||
-            'worldwide upstream snapshot',
-          now: now(),
-        }),
+        ...scopeFlightSnapshot(snapshot, query),
         status: response.status,
       };
     },
