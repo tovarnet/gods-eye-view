@@ -188,7 +188,7 @@ export function createMotion({
       const playbackMs = Math.max(
         1000,
         Math.min(
-          15000,
+          45_000,
           Number.isFinite(receiptSpanRaw) && receiptSpanRaw > 0
             ? receiptSpanRaw
             : sourceSpanMs,
