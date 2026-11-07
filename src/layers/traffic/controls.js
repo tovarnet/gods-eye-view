@@ -191,7 +191,7 @@ export function createControls({ state: layerState, services, parts, source }) {
       const labels = { tomtom: 'TomTom', osm: 'OSM', hybrid: t('Hybrid') };
       return {
         info: live
-          ? t('TomTom real; mini-autos representan flujo agregado. F-xxx es un marcador visual, no matrícula.')
+          ? t('TomTom real; colores y congestión son datos reales. Mini-autos y F-xxx son flujo visual (ritmo acelerado), no vehículos ni matrículas reales.')
           : t('SIMULATED fallback; no live TomTom flow is available.'),
         chips: TRAFFIC_ROAD_MODES.map((mode) => ({
           id: `roads-${mode}`,

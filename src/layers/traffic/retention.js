@@ -92,6 +92,7 @@ export function createRetention({ state, parts }) {
       ) {
         const dot = record.dots[i];
         if (dot.retiring) continue;
+        if (state._liveMode && now < (dot.handoffUntil || 0)) continue;
         dot.retiring = now;
         active--;
         budget--;

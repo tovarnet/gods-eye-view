@@ -14,6 +14,11 @@ import {
   HEAT_JAM_PULSE_ALPHA,
 } from './policy.js';
 
+const LIVE_VISUAL_PACE = 1.65;
+const LIVE_ENDPOINT_FADE_SECONDS = 0.8;
+const CONTINUATION_MAX_GAP_M = 58;
+const CONTINUATION_MIN_ALIGNMENT = 0.5;
+
 export function createAnimation({
   state: layerState,
   services,
@@ -108,20 +113,26 @@ export function createAnimation({
       const entry = roadEntryPoint(road);
       if (!entry) continue;
       const distance = Cesium.Cartesian3.distance(exit, entry);
-      if (distance > 32) continue;
+      if (distance > CONTINUATION_MAX_GAP_M) continue;
 
       const incoming = roadTravelVector(road, true);
       if (!incoming) continue;
       const alignment = Cesium.Cartesian3.dot(outgoing, incoming);
-      // Avoid U-turns / side streets. Color changes on the same road are
-      // essentially collinear and score very highly.
-      if (alignment < 0.55) continue;
+      // At a true segment boundary the continuation is nearly collinear.
+      // Small gaps caused by tile clipping may bend a little, but distant gaps
+      // must stay very straight so cars never jump onto a side street.
+      const requiredAlignment =
+        distance <= 12 ? CONTINUATION_MIN_ALIGNMENT
+        : distance <= 28 ? 0.66
+        : 0.82;
+      if (alignment < requiredAlignment) continue;
 
-      const classPenalty =
-        road.roadClass && dot.road.roadClass && road.roadClass !== dot.road.roadClass
-          ? 8
-          : 0;
-      const score = distance + (1 - alignment) * 24 + classPenalty;
+      const sameClass =
+        !road.roadClass ||
+        !dot.road.roadClass ||
+        road.roadClass === dot.road.roadClass;
+      const classPenalty = sameClass ? 0 : 18;
+      const score = distance + (1 - alignment) * 38 + classPenalty;
       if (score < bestScore) {
         bestScore = score;
         best = road;
@@ -143,11 +154,15 @@ export function createAnimation({
     dot.recycle = false;
     dot.respawnAt = 0;
     dot.born = Math.min(dot.born || now, now - DOT_FADE_MS);
+    dot.handoffUntil = now + 2400;
 
     const flow = road.flow;
     const bucket = flow ? flowBucket(flow.level) : null;
     dot.bucket = bucket;
-    dot.baseMps = (SPEED_MPS[road.type] || 5) * layerState._speedScale;
+    dot.baseMps =
+      (SPEED_MPS[road.type] || 5) *
+      layerState._speedScale *
+      LIVE_VISUAL_PACE;
     dot.mps = dot.baseMps * (flow ? flowSpeedScale(flow.level) : 1);
     if (dot.billboard)
       dot.billboard.color = bucket
@@ -308,7 +323,7 @@ export function createAnimation({
       // included, flow excluded) is kept on the dot so a late-arriving flow
       // match can rescale speed in place (recolorDotsInPlace).
       const noisedMps = layerState._liveMode
-        ? baseMps * layerState._speedScale
+        ? baseMps * layerState._speedScale * LIVE_VISUAL_PACE
         : baseMps * layerState._speedScale * (0.7 + Math.random() * 0.6);
       const mps = noisedMps * flowSpeed;
 
@@ -393,17 +408,20 @@ export function createAnimation({
           ? layerState._trafficLabels.add({
               position: Cesium.Cartesian3.clone(layerState._scratchLerp),
               text: flowMarkerText(id),
-              font: '10px monospace',
-              fillColor: Cesium.Color.WHITE.withAlpha(0.95),
-              outlineColor: Cesium.Color.BLACK.withAlpha(0.95),
+              font: 'bold 14px monospace',
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.BLACK.withAlpha(0.98),
               outlineWidth: 3,
               style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-              pixelOffset: new Cesium.Cartesian2(0, -17),
-              scaleByDistance: new Cesium.NearFarScalar(80, 1.0, 3500, 0.65),
+              showBackground: true,
+              backgroundColor: Cesium.Color.fromCssColorString('#071217').withAlpha(0.82),
+              backgroundPadding: new Cesium.Cartesian2(5, 3),
+              pixelOffset: new Cesium.Cartesian2(0, -25),
+              scaleByDistance: new Cesium.NearFarScalar(80, 1.18, 4500, 0.78),
               translucencyByDistance: new Cesium.NearFarScalar(
                 80,
                 1.0,
-                6000,
+                7500,
                 0.0,
               ),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -422,6 +440,7 @@ export function createAnimation({
         nominalSize: pixelSize,
         recycle: false,
         respawnAt: 0,
+        handoffUntil: 0,
         point,
         billboard,
         label,
@@ -510,7 +529,10 @@ export function createAnimation({
           : dot.segIdx === 0
             ? dot.t * dot.segmentDist[0]
             : Infinity;
-      const endpointFade = Math.min(1, remaining / Math.max(1, dot.mps * 0.25));
+      const endpointFade = Math.min(
+        1,
+        remaining / Math.max(1, dot.mps * LIVE_ENDPOINT_FADE_SECONDS),
+      );
       const visibility = Math.max(
         0,
         Math.min(
