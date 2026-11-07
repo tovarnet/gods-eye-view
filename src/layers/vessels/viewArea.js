@@ -1,7 +1,7 @@
 /** Smallest area asked for around the view, in kilometres. */
 export const VIEW_AREA_MIN_RADIUS_KM = 10;
-/** Largest area asked for; a wider view asks for every vessel instead. */
-export const VIEW_AREA_MAX_RADIUS_KM = 450;
+/** Largest regional area asked for; wider views fall back to the global feed. */
+export const VIEW_AREA_MAX_RADIUS_KM = 1000;
 
 /**
  * The radius worth asking for from a camera this high, in kilometres: about
