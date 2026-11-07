@@ -152,8 +152,94 @@ export function createMotion({
     }
 
     const out = result || new Cesium.Cartesian3();
-    // Render one poll interval behind real time so we interpolate between
-    // two KNOWN fixes whenever possible (see RENDER_DELAY_SEC rationale).
+
+    // VERIFIED mode: replay only the most recent OBSERVED segment. When a new
+    // real fix arrives, the aircraft starts at the previous real fix and moves
+    // toward the new real fix over approximately the feed's actual receipt
+    // cadence. No position is ever projected beyond an observed endpoint.
+    //
+    // This deliberately uses receipt cadence for animation time, not source
+    // age: OpenSky positions can arrive several seconds old, but the two
+    // endpoints themselves are still real. Replaying the known segment makes
+    // ambient and tracked aircraft follow the same honest motion path.
+    if (flightState._verifiedPositionsOnly) {
+      const newest = history[history.length - 1];
+      const previous = history.length >= 2 ? history[history.length - 2] : null;
+      if (!previous) {
+        flightState._drCourseDeg = Number.isFinite(newest.track)
+          ? newest.track
+          : info?.true_track || 0;
+        flightState._drSpeedMps = Number.isFinite(newest.velocity)
+          ? newest.velocity
+          : info?.velocity || 0;
+        flightState._drCourseHold =
+          flightState._drSpeedMps < COURSE_HOLD_SPEED_MPS;
+        flightState._drExtrapolating = false;
+        flightState._drProvenance = 'observed-hold';
+        return Cesium.Cartesian3.clone(newest.position, out);
+      }
+
+      const sourceSpanMs = Math.max(
+        1000,
+        Number(newest.epochMs) - Number(previous.epochMs),
+      );
+      const receiptSpanRaw =
+        Number(newest.receivedMs) - Number(previous.receivedMs);
+      const playbackMs = Math.max(
+        1000,
+        Math.min(
+          15000,
+          Number.isFinite(receiptSpanRaw) && receiptSpanRaw > 0
+            ? receiptSpanRaw
+            : sourceSpanMs,
+        ),
+      );
+      const startedMs = Number.isFinite(newest.receivedMs)
+        ? newest.receivedMs
+        : Date.now();
+      const t = Math.max(
+        0,
+        Math.min(1, (Date.now() - startedMs) / playbackMs),
+      );
+
+      const chordLenM = Cesium.Cartesian3.distance(
+        previous.position,
+        newest.position,
+      );
+      const sourceSpanSec = Math.max(0.001, sourceSpanMs / 1000);
+      const segSpeed = chordLenM / sourceSpanSec;
+      const fallbackTrack = info?.true_track || 0;
+      const trackFrom = Number.isFinite(previous.track)
+        ? previous.track
+        : fallbackTrack;
+      const trackTo = Number.isFinite(newest.track)
+        ? newest.track
+        : trackFrom;
+      const trackCourse = lerpAngleDeg(trackFrom, trackTo, t);
+      const w = info?.klass === 'helicopter' ? 0 : speedRamp(segSpeed);
+      const chordCourse =
+        w > 0
+          ? courseBetweenCartesians(previous.position, newest.position)
+          : null;
+      flightState._drCourseDeg =
+        chordCourse != null
+          ? lerpAngleDeg(trackCourse, chordCourse, w)
+          : trackCourse;
+      flightState._drSpeedMps = segSpeed;
+      flightState._drCourseHold = segSpeed < COURSE_HOLD_SPEED_MPS;
+      flightState._drExtrapolating = false;
+      flightState._drProvenance =
+        t < 1 ? 'observed-interpolated' : 'observed-hold';
+      return Cesium.Cartesian3.lerp(
+        previous.position,
+        newest.position,
+        t,
+        out,
+      );
+    }
+
+    // Legacy estimated mode renders one poll interval behind real time so it
+    // interpolates between two known fixes whenever possible.
     const renderTime =
       sampledRenderTime ??
       Cesium.JulianDate.addSeconds(

@@ -147,6 +147,7 @@ export function createFlightSnapshotRenderer({
         history.push({
           time: fixTime,
           epochMs: fixEpochMs,
+          receivedMs: nowMs,
           position: position.clone(),
           velocity: meta.velocity,
           track: meta.true_track,
@@ -174,7 +175,7 @@ export function createFlightSnapshotRenderer({
         // the rendered aircraft when course or speed changes late.
         const kinematicsChanged =
           newest.velocity !== meta.velocity || newest.track !== meta.true_track;
-        if (kinematicsChanged) {
+        if (kinematicsChanged && !flightState._verifiedPositionsOnly) {
           const synthetic = synthesizeForwardKinematicsFix(newest, {
             epochMs: Date.now(),
             velocity: meta.velocity,
