@@ -2,19 +2,19 @@
 
 ## Alcance y checkpoint
 
-Producción observada: rama \`feature/mexico-transit\`, commit \`8c9d3d4\`. Las capturas suministradas muestran aproximadamente 526–527 vuelos en Estados Unidos; **no demuestran que todos estén actualizando posiciones**. Ningún dato de avión ni render frame ha sido medido desde una sesión instrumentada de ATLAS.
+Producción observada: rama `feature/mexico-transit`, commit `8c9d3d4`. Las capturas suministradas muestran aproximadamente 526–527 vuelos en Estados Unidos; **no demuestran que todos estén actualizando posiciones**. Ningún dato de avión ni render frame ha sido medido desde una sesión instrumentada de ATLAS.
 
-Esta auditoría se prepara fuera de producción en \`audit/atlas-motion-veracity-20261107\`. No implica modificar el servicio de Coolify.
+Esta auditoría se prepara fuera de producción en `audit/atlas-motion-veracity-20261107`. No implica modificar el servicio de Coolify.
 
 ## Hallazgos comprobados en el código
 
-1. \`lifecycle.enable()\` llama a \`holdContinuousRender('flights')\` e instala \`scene.preRender -> _fleetTick\`; la flota **tiene un render loop** previsto cada \`FLEET_DR_INTERVAL_MS\`. La cámara inmóvil por sí sola no debería apagarlo mientras la capa esté habilitada.
-2. En \`motion._deadReckon()\`, el modo \`_verifiedPositionsOnly\` reproduce entre los **dos últimos fixes observados** durante un intervalo calculado por \`receivedMs\`. Una vez alcanza el segundo fix, **se detiene hasta que haya un nuevo fix**. Eso evita extrapolar, pero crea periodos perceptibles de inmovilidad, incluso a escala cercana si las posiciones llegan espaciadas.
+1. `lifecycle.enable()` llama a `holdContinuousRender('flights')` e instala `scene.preRender -> _fleetTick`; la flota **tiene un render loop** previsto cada `FLEET_DR_INTERVAL_MS`. La cámara inmóvil por sí sola no debería apagarlo mientras la capa esté habilitada.
+2. En `motion._deadReckon()`, el modo `_verifiedPositionsOnly` reproduce entre los **dos últimos fixes observados** durante un intervalo calculado por `receivedMs`. Una vez alcanza el segundo fix, **se detiene hasta que haya un nuevo fix**. Eso evita extrapolar, pero crea periodos perceptibles de inmovilidad, incluso a escala cercana si las posiciones llegan espaciadas.
 3. A zoom continental/global, un desplazamiento físicamente correcto puede equivaler a una fracción de píxel. El tamaño fijo del símbolo no implica que su posición cambie a escala perceptible.
-4. \`snapshotRenderer\` solo añade historial cuando avanza \`positionTimeMs\`; 40 fixes es un máximo de almacenamiento, **no garantiza 40 observaciones distintas**.
-5. \`scopeFlightSnapshot\` reduce contactos visibles por presupuesto/región. El número total de vuelos que muestra la interfaz no certifica por sí solo disponibilidad mundial, frecuencia por contacto o actualización.
-6. Existe una prueba anterior que seguía exigiendo el antiguo \`renderTime\` verificado; no cubría la implementación actual basada en \`receivedMs\`. Esta rama sustituye ese caso por pruebas temporales deterministas.
-7. Los resultados de GitHub Actions consultados no muestran una corrida CI asociada al commit de producción \`8c9d3d4\`. \`Coolify Success\` prueba arranque/despliegue, no movimiento correcto. No declarar QA verde sin job del mismo SHA.
+4. `snapshotRenderer` solo añade historial cuando avanza `positionTimeMs`; 40 fixes es un máximo de almacenamiento, **no garantiza 40 observaciones distintas**.
+5. `scopeFlightSnapshot` reduce contactos visibles por presupuesto/región. El número total de vuelos que muestra la interfaz no certifica por sí solo disponibilidad mundial, frecuencia por contacto o actualización.
+6. Existe una prueba anterior que seguía exigiendo el antiguo `renderTime` verificado; no cubría la implementación actual basada en `receivedMs`. Esta rama sustituye ese caso por pruebas temporales deterministas.
+7. Los resultados de GitHub Actions consultados no muestran una corrida CI asociada al commit de producción `8c9d3d4`. `Coolify Success` prueba arranque/despliegue, no movimiento correcto. No declarar QA verde sin job del mismo SHA.
 
 ## Solución de producto en dos representaciones honestas
 
