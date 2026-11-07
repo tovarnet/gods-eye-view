@@ -50,6 +50,7 @@ function flightPriority(record, trackedId) {
 
 const GLOBAL_GRID_DEG = 10;
 const GLOBAL_MEXICO_RESERVE = 140;
+const MEXICO_CONTEXT_MAX = 220;
 
 function inMexicoRegion(record) {
   return (
@@ -60,6 +61,53 @@ function inMexicoRegion(record) {
     record.longitude >= -119.5 &&
     record.longitude <= -86
   );
+}
+
+function pointIsInMexicoFocus(latitude, longitude) {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= 14 &&
+    latitude <= 33.5 &&
+    longitude >= -119.5 &&
+    longitude <= -86
+  );
+}
+
+function mexicoFocusedFlights(records, candidates, trackedId) {
+  const selected = [];
+  const selectedIds = new Set();
+  const add = (record) => {
+    if (!record?.id || selectedIds.has(record.id)) return false;
+    selected.push(record);
+    selectedIds.add(record.id);
+    return true;
+  };
+
+  // Mexico view is intentionally lossless for verified Mexican contacts:
+  // every fresh observed position OpenSky supplied inside the Mexico region
+  // is rendered. We only thin the surrounding regional context.
+  for (const record of records || []) {
+    if (inMexicoRegion(record)) add(record);
+  }
+
+  // Tracked/emergency contacts outside Mexico remain visible.
+  for (const item of candidates) {
+    if (flightPriority(item.record, trackedId) <= 1) add(item.record);
+  }
+
+  const context = candidates
+    .filter(({ record }) => !inMexicoRegion(record) && !selectedIds.has(record.id))
+    .sort((a, b) => {
+      const priority =
+        flightPriority(a.record, trackedId) -
+        flightPriority(b.record, trackedId);
+      if (priority) return priority;
+      return a.distanceKm - b.distanceKm;
+    });
+
+  for (const { record } of context.slice(0, MEXICO_CONTEXT_MAX)) add(record);
+  return selected;
 }
 
 function globallyDistributedFlights(records, maxRows, trackedId) {
@@ -180,24 +228,35 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
     }
   }
 
-  let selected = candidates;
-  if (candidates.length > maxRows) {
-    selected = [...candidates]
-      .sort((a, b) => {
-        const priority =
-          flightPriority(a.record, trackedId) -
-          flightPriority(b.record, trackedId);
-        if (priority) return priority;
-        const rank =
-          stableFlightRank(a.record.id) - stableFlightRank(b.record.id);
-        if (rank) return rank;
-        return a.distanceKm - b.distanceKm;
-      })
-      .slice(0, maxRows);
+  const mexicoFocus = pointIsInMexicoFocus(latitude, longitude);
+  let records;
+  if (mexicoFocus) {
+    records = mexicoFocusedFlights(snapshot.records || [], candidates, trackedId);
+  } else {
+    let selected = candidates;
+    if (candidates.length > maxRows) {
+      selected = [...candidates]
+        .sort((a, b) => {
+          const priority =
+            flightPriority(a.record, trackedId) -
+            flightPriority(b.record, trackedId);
+          if (priority) return priority;
+          const rank =
+            stableFlightRank(a.record.id) - stableFlightRank(b.record.id);
+          if (rank) return rank;
+          return a.distanceKm - b.distanceKm;
+        })
+        .slice(0, maxRows);
+    }
+    records = selected.map(({ record }) => record);
   }
 
-  const records = selected.map(({ record }) => record);
-  const viewCoverage = `view ${Math.round(radiusKm)} km · ${records.length}/${candidates.length} shown`;
+  const mexicoCount = mexicoFocus
+    ? records.filter((record) => inMexicoRegion(record)).length
+    : 0;
+  const viewCoverage = mexicoFocus
+    ? `Mexico full verified · ${mexicoCount} Mexico + ${records.length - mexicoCount} context`
+    : `view ${Math.round(radiusKm)} km · ${records.length}/${candidates.length} shown`;
   return {
     ...snapshot,
     records,
