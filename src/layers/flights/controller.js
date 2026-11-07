@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 
 const FLIGHT_VIEW_RADIUS_MIN_KM = 120;
 const FLIGHT_VIEW_RADIUS_MAX_KM = 5000;
+const FLIGHT_GLOBAL_ALTITUDE_M = 7_000_000;
 
 /**
  * Keep the live-flight layer useful at every zoom: enough geographic context
@@ -17,9 +18,18 @@ export function flightViewportPolicy(cameraHeightM) {
       Math.max(FLIGHT_VIEW_RADIUS_MIN_KM, 80 + heightKm * 2.4),
     ),
   );
-  const maxRows =
-    heightKm < 120 ? 260 : heightKm < 500 ? 320 : heightKm < 1500 ? 380 : 450;
-  return { radiusKm, maxRows };
+  const globalView =
+    Number.isFinite(cameraHeightM) && cameraHeightM >= FLIGHT_GLOBAL_ALTITUDE_M;
+  const maxRows = globalView
+    ? 700
+    : heightKm < 120
+      ? 260
+      : heightKm < 500
+        ? 320
+        : heightKm < 1500
+          ? 380
+          : 450;
+  return { radiusKm, maxRows, globalView };
 }
 
 function flightViewAnchor(viewer, fallback) {
@@ -62,8 +72,9 @@ export function createController({
     return {
       latitude: Cesium.Math.toDegrees(anchor.latitude),
       longitude: Cesium.Math.toDegrees(anchor.longitude),
-      radiusKm: policy.radiusKm,
+      radiusKm: policy.globalView ? null : policy.radiusKm,
       maxRows: policy.maxRows,
+      globalView: policy.globalView,
       trackedId: flightState._trackedIcao || null,
     };
   }

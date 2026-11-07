@@ -48,6 +48,82 @@ function flightPriority(record, trackedId) {
   return 2;
 }
 
+const GLOBAL_GRID_DEG = 10;
+const GLOBAL_MEXICO_RESERVE = 140;
+
+function inMexicoRegion(record) {
+  return (
+    Number.isFinite(record?.latitude) &&
+    Number.isFinite(record?.longitude) &&
+    record.latitude >= 14 &&
+    record.latitude <= 33.5 &&
+    record.longitude >= -119.5 &&
+    record.longitude <= -86
+  );
+}
+
+function globallyDistributedFlights(records, maxRows, trackedId) {
+  if (!Array.isArray(records) || records.length <= maxRows) return records || [];
+
+  const selected = [];
+  const selectedIds = new Set();
+  const add = (record) => {
+    if (!record?.id || selectedIds.has(record.id) || selected.length >= maxRows)
+      return false;
+    selected.push(record);
+    selectedIds.add(record.id);
+    return true;
+  };
+
+  // Never lose an actively tracked or emergency contact.
+  for (const record of records) {
+    if (flightPriority(record, trackedId) <= 1) add(record);
+  }
+
+  // Mexico is the operator's primary region. Reserve enough global slots for
+  // its observed contacts so zooming to the globe never makes Mexico vanish.
+  const mexico = records
+    .filter((record) => inMexicoRegion(record) && !selectedIds.has(record.id))
+    .sort((a, b) => stableFlightRank(a.id) - stableFlightRank(b.id));
+  for (const record of mexico.slice(0, GLOBAL_MEXICO_RESERVE)) add(record);
+
+  const buckets = new Map();
+  for (const record of records) {
+    if (
+      selectedIds.has(record.id) ||
+      !Number.isFinite(record.latitude) ||
+      !Number.isFinite(record.longitude)
+    )
+      continue;
+    const y = Math.floor((record.latitude + 90) / GLOBAL_GRID_DEG);
+    const x = Math.floor((record.longitude + 180) / GLOBAL_GRID_DEG);
+    const key = `${y}:${x}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(record);
+  }
+
+  const orderedBuckets = [...buckets.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, rows]) =>
+      rows.sort((a, b) => stableFlightRank(a.id) - stableFlightRank(b.id)),
+    );
+
+  // Round-robin across geographic cells. Busy regions still receive multiple
+  // contacts, but they can no longer consume the whole global budget.
+  let round = 0;
+  while (selected.length < maxRows) {
+    let addedThisRound = 0;
+    for (const bucket of orderedBuckets) {
+      if (round < bucket.length && add(bucket[round])) addedThisRound += 1;
+      if (selected.length >= maxRows) break;
+    }
+    if (!addedThisRound) break;
+    round += 1;
+  }
+
+  return selected;
+}
+
 /**
  * Scope a real upstream snapshot to the operator's current view. This does not
  * synthesize, extrapolate or alter positions; it only chooses which observed
@@ -58,16 +134,34 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
   const longitude = Number(query.longitude);
   const radiusKm = Number(query.radiusKm);
   const maxRows = Math.max(1, Math.floor(Number(query.maxRows)));
+  if (!Number.isFinite(maxRows)) return snapshot;
+
+  const trackedId = String(query.trackedId || '').trim().toLowerCase();
+  const baseCoverage = String(snapshot.coverage || '').trim();
+
+  if (query.globalView === true) {
+    const candidates = snapshot.records || [];
+    const records = globallyDistributedFlights(candidates, maxRows, trackedId);
+    const viewCoverage = `global distributed · ${records.length}/${candidates.length} shown · Mexico priority`;
+    return {
+      ...snapshot,
+      records,
+      retainIds: new Set(),
+      complete: true,
+      viewportScoped: true,
+      totalViewCandidates: candidates.length,
+      coverage: baseCoverage ? `${baseCoverage}; ${viewCoverage}` : viewCoverage,
+    };
+  }
+
   if (
     !Number.isFinite(latitude) ||
     !Number.isFinite(longitude) ||
     !Number.isFinite(radiusKm) ||
-    radiusKm <= 0 ||
-    !Number.isFinite(maxRows)
+    radiusKm <= 0
   )
     return snapshot;
 
-  const trackedId = String(query.trackedId || '').trim().toLowerCase();
   const candidates = [];
   for (const record of snapshot.records || []) {
     if (
@@ -94,7 +188,8 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
           flightPriority(a.record, trackedId) -
           flightPriority(b.record, trackedId);
         if (priority) return priority;
-        const rank = stableFlightRank(a.record.id) - stableFlightRank(b.record.id);
+        const rank =
+          stableFlightRank(a.record.id) - stableFlightRank(b.record.id);
         if (rank) return rank;
         return a.distanceKm - b.distanceKm;
       })
@@ -102,7 +197,6 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
   }
 
   const records = selected.map(({ record }) => record);
-  const baseCoverage = String(snapshot.coverage || '').trim();
   const viewCoverage = `view ${Math.round(radiusKm)} km · ${records.length}/${candidates.length} shown`;
   return {
     ...snapshot,
@@ -175,6 +269,7 @@ export function createFlightSource({
         params.set('radius_km', query.radiusKm.toFixed(1));
       if (Number.isFinite(query.maxRows))
         params.set('maxRows', String(Math.floor(query.maxRows)));
+      if (query.globalView === true) params.set('global', '1');
       const { response, payload } = await readResponse(
         fetchImpl,
         `/api/flights${params.size ? '?' + params : ''}`,
