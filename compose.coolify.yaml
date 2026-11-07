@@ -9,6 +9,7 @@ services:
     environment:
       GEV_ALLOWED_HOSTS: ${GEV_ALLOWED_HOSTS}
       GEV_KEY_SETUP_TRUSTED_PEERS: ${GEV_KEY_SETUP_TRUSTED_PEERS:-}
+      GEV_TRUST_REVERSE_PROXY: ${GEV_TRUST_REVERSE_PROXY:-false}
     expose:
       - "4173"
     ports:
