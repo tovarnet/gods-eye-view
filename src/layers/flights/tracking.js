@@ -129,6 +129,10 @@ export function createTracking({
         heading: Number.isFinite(described.track)
           ? `${roundHeadingDegrees(described.track)}°`
           : '',
+        positionEvidence: described.positionEvidence || '',
+        positionObservedAt: Number.isFinite(described.positionObservedAtMs)
+          ? new Date(described.positionObservedAtMs).toISOString()
+          : '',
         route: route || '',
         icao24,
         // Honesty cue: the contact is coasting on dead reckoning, so the
@@ -768,7 +772,21 @@ export function createTracking({
       flightState.records.missingPolls.get(icao24) || flightState.feed._backoff
         ? t('STALE')
         : '';
-    const lines = [[cs, fl, spd, stale].filter(Boolean).join(' · ')];
+    const evidence = parts.motion._positionEvidenceMode(icao24);
+    const positionAgeSec = Number.isFinite(info.positionObservedAtMs)
+      ? Math.max(0, Math.round((Date.now() - info.positionObservedAtMs) / 1000))
+      : null;
+    const positionCue =
+      evidence === 'interpolated'
+        ? `INTERP · ${positionAgeSec ?? '?'}s`
+        : evidence === 'observed-hold'
+          ? `RAW/HOLD · ${positionAgeSec ?? '?'}s`
+          : evidence === 'estimated'
+            ? 'ESTIMATED'
+            : '';
+    const lines = [
+      [cs, fl, spd, positionCue, stale].filter(Boolean).join(' · '),
+    ];
     // Converted contacts report their class as TR-3B and nothing else — the
     // operator/type identity is exactly what the Easter egg is replacing.
     const ident = isTr3b(icao24)

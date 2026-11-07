@@ -120,6 +120,12 @@ export function createFlightState({ source, services }) {
 
   flightState._positionHistory = new Map();
 
+  /**
+   * Data-integrity default. In VERIFIED mode positions may interpolate only
+   * between observed fixes; they never extrapolate beyond observed evidence.
+   */
+  flightState._verifiedPositionsOnly = true;
+
   // ---------------------------------------------------------------------------
   // Click-to-track state
   // ---------------------------------------------------------------------------
@@ -295,6 +301,9 @@ export function createFlightState({ source, services }) {
    *  the wrong end leaves a coaster permanently ahead of its floor data. */
 
   flightState._drExtrapolating = false;
+
+  /** Provenance of the position returned by the most recent _deadReckon call. */
+  flightState._drProvenance = 'unknown';
 
   /** Frame-cached course for the tracked aircraft (sibling of _cachedDRPosition). */
 

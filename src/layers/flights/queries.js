@@ -177,6 +177,10 @@ export function createQueries({
         flightState.records.missingPolls.get(icao24) ||
         flightState.feed._backoff,
       ),
+      positionEvidence: parts.motion._positionEvidenceMode(icao24),
+      positionObservedAtMs: Number.isFinite(info?.positionObservedAtMs)
+        ? info.positionObservedAtMs
+        : null,
       // This poll's transponder broadcast (not sticky; see records.js).
       squawk: info?.squawk ?? null,
       emergency: info?.emergency ? { ...info.emergency } : null,
@@ -284,6 +288,7 @@ export function createQueries({
       // Latest known general aircraft-message contact, retained if a poll
       // has no time. This is not the receipt time of the current status.
       lastContactAtMs: num(info?.lastContactEpochMs),
+      positionObservedAtMs: num(info?.positionObservedAtMs),
       routeOrigin: routeOk ? text(info?.route?.origin?.code) : null,
       routeDestination: routeOk ? text(info?.route?.destination?.code) : null,
     };
