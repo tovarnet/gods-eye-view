@@ -91,11 +91,25 @@ export function createAnimation({
     const flowSpeed = flow ? flowSpeedScale(flow.level) : 1;
     const now = Date.now();
 
-    // Jam-viz density prototype: jam-road dots spawn as bumper-to-bumper
-    // platoons (one shared direction per queue) instead of uniform scatter.
-    // Unreachable in sim mode — `bucket` requires flow.
+    // Live mode: distribute anonymous flow particles evenly along the measured
+    // corridor. Simulation mode may still use the legacy queue prototype.
     let placements = null;
-    if (bucket === 'jam' && parts.style.jamDensityOn()) {
+    if (layerState._liveMode) {
+      let totalLen = 0;
+      for (const d of road.segmentDist) totalLen += d;
+      placements = [];
+      for (let i = 0; i < count; i++) {
+        const { segIdx, t } = locateAlongRoad(
+          road.segmentDist,
+          totalLen * ((i + 0.5) / count),
+        );
+        placements.push({
+          segIdx,
+          t,
+          direction: road.oneway ? road.oneway : i % 2 === 0 ? 1 : -1,
+        });
+      }
+    } else if (bucket === 'jam' && parts.style.jamDensityOn()) {
       let totalLen = 0;
       for (const d of road.segmentDist) totalLen += d;
       const platoons = queuePlatoons(totalLen, count);
@@ -124,8 +138,9 @@ export function createAnimation({
       // Speed noise: base speed +/-30% for organic variation. baseMps (noise
       // included, flow excluded) is kept on the dot so a late-arriving flow
       // match can rescale speed in place (recolorDotsInPlace).
-      const noisedMps =
-        baseMps * layerState._speedScale * (0.7 + Math.random() * 0.6);
+      const noisedMps = layerState._liveMode
+        ? baseMps * layerState._speedScale
+        : baseMps * layerState._speedScale * (0.7 + Math.random() * 0.6);
       const mps = noisedMps * flowSpeed;
 
       // One-way roads flow only their legal direction; two-way alternates
@@ -148,7 +163,8 @@ export function createAnimation({
 
       // Grounded traffic respects building/terrain occlusion. The former
       // depth override made distant roads look like vehicles crossing roofs.
-      const jamProminent = bucket === 'jam' && parts.style.jamDensityOn();
+      const jamProminent =
+        !layerState._liveMode && bucket === 'jam' && parts.style.jamDensityOn();
       const id = layerState._nextDotId++;
       const point = layerState._pointCollection.add({
         position: Cesium.Cartesian3.clone(layerState._scratchLerp),
@@ -200,7 +216,9 @@ export function createAnimation({
         // Stop-and-go creep state (jam-viz density prototype): jam dots
         // alternate move-bursts and stops. Null in sim mode and for non-jam.
         creep:
-          bucket === 'jam' && parts.style.jamDensityOn()
+          !layerState._liveMode &&
+          bucket === 'jam' &&
+          parts.style.jamDensityOn()
             ? { moving: Math.random() < 0.4, until: now + Math.random() * 2000 }
             : null,
       });
@@ -301,7 +319,7 @@ export function createAnimation({
         }
         dot.segIdx = next;
         dot.t = dot.direction > 0 ? 0 : 1;
-        maybeStopLight(dot, now);
+        if (!layerState._liveMode) maybeStopLight(dot, now);
         if (now < dot.stoppedUntil) break;
       }
 

@@ -190,11 +190,16 @@ export function createFlow({ state: layerState, services, parts, source }) {
     layerState._warmFlow = ensureFlowStatus(signal).then(async () => {
       if (!layerState._liveMode || generation !== layerState._loadGeneration)
         return [];
+      const flowZoom = clamped.coverage?.detail?.length ? 14 : 12;
       if (typeof source.fetchFlowDetail !== 'function')
-        return fetchFlowForBounds(clamped, { signal });
+        return fetchFlowForBounds(clamped, { signal, zoom: flowZoom });
+      // Near-city views use z14 TomTom flow tiles; wider views stay on z12.
       // The proxy serves cached tiles once the TomTom budget is spent or the
       // upstream fails; carry that mark so getStats() reads STALE, not LIVE.
-      const detail = await source.fetchFlowDetail(clamped, { signal });
+      const detail = await source.fetchFlowDetail(clamped, {
+        signal,
+        zoom: flowZoom,
+      });
       if (generation === layerState._loadGeneration) {
         layerState._flowStale = detail.stale === true;
         layerState._flowOldestTileAt = detail.oldestTileAt ?? null;

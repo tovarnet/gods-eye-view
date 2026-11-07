@@ -177,6 +177,7 @@ export function createState({ services }) {
    * @type {Cesium.GroundPolylinePrimitive|null}
    */
 
+  layerState._flowLineCollection = null;
   layerState._heatFreePrim = null;
   layerState._heatJamPrim = null;
 

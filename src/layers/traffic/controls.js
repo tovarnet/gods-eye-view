@@ -191,7 +191,7 @@ export function createControls({ state: layerState, services, parts, source }) {
       const labels = { tomtom: 'TomTom', osm: 'OSM', hybrid: t('Hybrid') };
       return {
         info: live
-          ? t('Flujo real TomTom; no se infieren vehículos individuales.')
+          ? t('TomTom real; partículas animadas representan flujo agregado, no vehículos individuales.')
           : t('SIMULATED fallback; no live TomTom flow is available.'),
         chips: TRAFFIC_ROAD_MODES.map((mode) => ({
           id: `roads-${mode}`,
@@ -311,7 +311,10 @@ export function createControls({ state: layerState, services, parts, source }) {
         Boolean(layerState._populationPending) ||
         Boolean(layerState._heightPending);
       const { free, slow, jam, sim } = layerState._bucketCounts;
-      const matched = free + slow + jam;
+      const observedRoads = layerState._liveMode
+        ? layerState._roads.reduce((n, road) => n + (road.flow ? 1 : 0), 0)
+        : 0;
+      const matched = layerState._liveMode ? observedRoads : free + slow + jam;
       // The label reads 0 as "no matches" and 100 as nothing simulated, so
       // rounding must not reach either while both kinds of dot are shown.
       const flowCoveragePct =

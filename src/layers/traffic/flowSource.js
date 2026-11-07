@@ -87,10 +87,15 @@ export function createFlowTileSource({
    * the oldest tile was fetched.
    */
   async function fetchFlowDetail(bounds, { signal, zoom = 12 } = {}) {
+    const coverageTiles = bounds.coverage
+      ? zoom >= 14 && bounds.coverage.detail?.length
+        ? bounds.coverage.detail
+        : bounds.coverage.coarse
+      : undefined;
     const result = await tiles.fetchBounds(bounds, {
       zoom,
       signal,
-      tiles: bounds.coverage?.coarse,
+      tiles: coverageTiles,
     });
     partial = result.partial;
     const segments = bounds.coverage

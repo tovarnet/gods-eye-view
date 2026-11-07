@@ -104,19 +104,30 @@ export function createModel({ state: layerState, services, parts, source }) {
    */
 
   function computeDotCount(road, altitude) {
-    // TomTom reports aggregate road flow, not individual vehicles.
-    if (layerState._liveMode) return 0;
-
-    // Simulation fallback only: closed roads carry zero traffic; congestion packs more dots.
-    // `road.flow` is only ever set in live mode, so the keyless path is
-    // untouched (flow stays undefined → multiplier 1, identical output).
     const flow = layerState._liveMode ? road.flow : null;
     if (flow?.closure) return 0;
-    // Strict data-integrity view: uncovered roads spawn nothing when hidden.
-    if (layerState._liveMode && !flow && layerState._uncoveredMode === 'hide')
-      return 0;
+    if (layerState._liveMode && !flow) return 0;
 
     const lengthM = estimateRoadLengthDeg(road.coords);
+
+    // Live particles are an explicit FLOW animation, not a vehicle count.
+    // Their spacing depends only on display scale + segment length; congestion
+    // changes color and pace, never the claimed number of cars.
+    if (layerState._liveMode) {
+      const clearance = Math.max(
+        0,
+        altitude - (layerState._viewHeightEstimate || 0),
+      );
+      const spacing =
+        clearance < 900 ? 85 : clearance < 2500 ? 135 : clearance < 5000 ? 220 : 320;
+      return Math.max(
+        1,
+        Math.floor((lengthM / spacing) * (road.densityWeight || 1)),
+      );
+    }
+
+    // Simulation fallback only.
+
 
     // Altitude-adaptive spacing: closer camera = denser dots
     const clearance = Math.max(
@@ -400,7 +411,9 @@ export function createModel({ state: layerState, services, parts, source }) {
       }
       layerState._bucketCounts[bucket || 'sim'] += 1;
     }
-    layerState._count = layerState._dots.length - closedDots;
+    layerState._count = layerState._liveMode
+      ? layerState._roads.reduce((n, road) => n + (road.flow ? 1 : 0), 0)
+      : layerState._dots.length - closedDots;
     layerState._closedRoads = layerState._roads.reduce(
       (n, r) => n + (r.flow?.closure ? 1 : 0),
       0,

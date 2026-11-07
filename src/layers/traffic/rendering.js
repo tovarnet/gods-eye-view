@@ -41,6 +41,10 @@ export function createRendering({
   /** Remove both heat-line ground primitives from the scene. */
 
   function removeHeatLines() {
+    if (layerState._flowLineCollection) {
+      layerState._viewer?.scene.primitives.remove(layerState._flowLineCollection);
+      layerState._flowLineCollection = null;
+    }
     if (layerState._heatFreePrim) {
       layerState._viewer?.scene.groundPrimitives.remove(layerState._heatFreePrim);
       layerState._heatFreePrim = null;
@@ -78,21 +82,11 @@ export function createRendering({
   function rebuildHeatLines(roads) {
     removeHeatLines();
     if (!layerState._viewer || !layerState._liveMode) return;
-    if (layerState._heatSupported === null) {
-      layerState._heatSupported = Cesium.GroundPolylinePrimitive.isSupported(
-        layerState._viewer.scene,
-      );
-      if (!layerState._heatSupported)
-        console.warn(
-          '[Data:Traffic] GroundPolylinePrimitive unsupported — heat-lines disabled',
-        );
-    }
-    if (!layerState._heatSupported) return;
 
     const candidates = [];
     for (const road of roads) {
       const flow = road.flow;
-      if (!flow) continue;
+      if (!flow || road.waypoints?.length < 2) continue;
       const bucket = flow.closure ? 'closure' : flowBucket(flow.level);
       let len = 0;
       for (const d of road.segmentDist) len += d;
@@ -100,98 +94,55 @@ export function createRendering({
     }
     const priority = { closure: 0, jam: 1, slow: 2, free: 3 };
     candidates.sort((a, b) =>
-      a.bucket === b.bucket ? b.len - a.len : priority[a.bucket] - priority[b.bucket],
+      a.bucket === b.bucket
+        ? b.len - a.len
+        : priority[a.bucket] - priority[b.bucket],
     );
     const kept = candidates.slice(0, HEAT_LINE_CAP);
-
-    const instancesFor = (bucket, width) =>
-      kept
-        .filter((c) => c.bucket === bucket)
-        .map(
-          (c) =>
-            new Cesium.GeometryInstance({
-              geometry: new Cesium.GroundPolylineGeometry({
-                positions: c.road.waypoints,
-                width,
-              }),
-            }),
-        );
-
-    // Mono presets (NVG/FLIR/noir) discard hue — heat-lines re-encode in
-    // luminance like the dots: jam = white glow, slow = faint gray.
-    const monoHeat =
+    const mono =
       layerState._presetDots === 'on' &&
       trafficStyleProfile(layerState._stylePreset) === 'mono';
-    const freeLineColor = monoHeat
-      ? new Cesium.Color(0.82, 0.82, 0.82, HEAT_FREE_COLOR.alpha)
-      : HEAT_FREE_COLOR;
-    const jamLineColor = monoHeat ? Cesium.Color.WHITE : HEAT_JAM_COLOR;
-    const slowLineColor = monoHeat
-      ? new Cesium.Color(0.7, 0.7, 0.7, HEAT_SLOW_COLOR.alpha)
-      : HEAT_SLOW_COLOR;
-    const closureLineColor = monoHeat ? Cesium.Color.WHITE : HEAT_CLOSURE_COLOR;
+    const colorFor = (bucket) => {
+      if (mono) {
+        if (bucket === 'closure' || bucket === 'jam') return Cesium.Color.WHITE;
+        return bucket === 'slow'
+          ? new Cesium.Color(0.82, 0.82, 0.82, 0.92)
+          : new Cesium.Color(0.68, 0.68, 0.68, 0.8);
+      }
+      if (bucket === 'closure') return HEAT_CLOSURE_COLOR;
+      if (bucket === 'jam') return HEAT_JAM_COLOR.withAlpha(0.95);
+      if (bucket === 'slow') return HEAT_SLOW_COLOR.withAlpha(0.95);
+      return HEAT_FREE_COLOR.withAlpha(0.88);
+    };
+    const widthFor = (bucket) =>
+      bucket === 'closure'
+        ? HEAT_LINE_CLOSURE_WIDTH
+        : bucket === 'jam'
+          ? Math.max(7, HEAT_LINE_JAM_WIDTH)
+          : bucket === 'slow'
+            ? Math.max(5, HEAT_LINE_SLOW_WIDTH)
+            : Math.max(4, HEAT_LINE_FREE_WIDTH);
 
-    const freeInstances = instancesFor('free', HEAT_LINE_FREE_WIDTH);
-    if (freeInstances.length) {
-      layerState._heatFreePrim = layerState._viewer.scene.groundPrimitives.add(
-        new Cesium.GroundPolylinePrimitive({
-          geometryInstances: freeInstances,
-          classificationType: Cesium.ClassificationType.BOTH,
-          appearance: new Cesium.PolylineMaterialAppearance({
-            material: Cesium.Material.fromType('Color', { color: freeLineColor }),
-          }),
-        }),
-      );
+    const collection = new Cesium.PolylineCollection();
+    for (const { road, bucket } of kept) {
+      collection.add({
+        positions: road.waypoints,
+        width: widthFor(bucket),
+        material:
+          bucket === 'jam' || bucket === 'closure'
+            ? Cesium.Material.fromType('PolylineGlow', {
+                color: colorFor(bucket),
+                glowPower: bucket === 'closure' ? 0.35 : 0.22,
+              })
+            : Cesium.Material.fromType('Color', { color: colorFor(bucket) }),
+      });
     }
-
-    const jamInstances = instancesFor('jam', HEAT_LINE_JAM_WIDTH);
-    if (jamInstances.length) {
-      layerState._heatJamPrim = layerState._viewer.scene.groundPrimitives.add(
-        new Cesium.GroundPolylinePrimitive({
-          geometryInstances: jamInstances,
-          classificationType: Cesium.ClassificationType.BOTH,
-          appearance: new Cesium.PolylineMaterialAppearance({
-            material: Cesium.Material.fromType('PolylineGlow', {
-              color: jamLineColor.withAlpha(HEAT_JAM_BASE_ALPHA),
-              glowPower: 0.25,
-            }),
-          }),
-        }),
-      );
-    }
-    const slowInstances = instancesFor('slow', HEAT_LINE_SLOW_WIDTH);
-    if (slowInstances.length) {
-      layerState._heatSlowPrim = layerState._viewer.scene.groundPrimitives.add(
-        new Cesium.GroundPolylinePrimitive({
-          geometryInstances: slowInstances,
-          classificationType: Cesium.ClassificationType.BOTH,
-          appearance: new Cesium.PolylineMaterialAppearance({
-            material: Cesium.Material.fromType('Color', {
-              color: slowLineColor,
-            }),
-          }),
-        }),
-      );
-    }
-
-    const closureInstances = instancesFor('closure', HEAT_LINE_CLOSURE_WIDTH);
-    if (closureInstances.length) {
-      layerState._heatClosurePrim = layerState._viewer.scene.groundPrimitives.add(
-        new Cesium.GroundPolylinePrimitive({
-          geometryInstances: closureInstances,
-          classificationType: Cesium.ClassificationType.BOTH,
-          appearance: new Cesium.PolylineMaterialAppearance({
-            material: Cesium.Material.fromType('PolylineGlow', {
-              color: closureLineColor,
-              glowPower: 0.35,
-            }),
-          }),
-        }),
-      );
-    }
-
+    layerState._flowLineCollection =
+      layerState._viewer.scene.primitives.add(collection);
     layerState._heatLineCount = kept.length;
     parts.animation.syncRenderDemand?.();
+    layerState._viewer.scene.requestRender();
+
     if (candidates.length > kept.length) {
       console.log(
         `[Data:Traffic] Live-flow corridors capped at ${HEAT_LINE_CAP} (${candidates.length} observed segments in view)`,
