@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium';
 import { isPointerFree } from '../../data/inputOwnership.js';
-import { isSurfacePick, pickGroundPosition } from '../../data/scenePick.js';
+import { pickGroundPosition } from '../../data/scenePick.js';
 import { FAST_FETCH_ALTITUDE } from './policy.js';
 
 const OVERLAY_SOURCE_ID = 'traffic-flow-inspection';
@@ -22,7 +22,11 @@ export function createSelection({ state, services, source }) {
   async function inspect(screenPosition) {
     if (!state._enabled || !state._liveMode || !state._viewer) return;
     const viewer = state._viewer;
-    if (!isSurfacePick(viewer.scene.pick(screenPosition))) return;
+    const picked = viewer.scene.pick(screenPosition);
+    const objectId = picked?.id ?? picked?.primitive?.id;
+    // Identified objects belong to their own layer. Unidentified map/tiles/
+    // traffic-corridor primitives are safe ground inspection targets.
+    if (objectId !== undefined && objectId !== null) return;
     const position = pickGroundPosition(viewer, screenPosition);
     if (!position) return;
     const cart = Cesium.Cartographic.fromCartesian(position);
