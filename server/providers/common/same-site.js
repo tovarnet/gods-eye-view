@@ -25,7 +25,7 @@ function trustReverseProxy() {
 export function admitSameSite(req, res) {
   const allowProxy = trustReverseProxy();
   const verdict = admitSameSiteRequest({
-    hostHeader: req.headers?.host,
+    hostHeader: allowProxy ? forwardedHost(req) : req.headers?.host,
     protocol: allowProxy
       ? forwardedProtocol(req)
       : req.socket?.encrypted
@@ -70,6 +70,17 @@ function forwardedProtocol(req) {
     .trim()
     .toLowerCase();
   return proto === 'https' ? 'https:' : 'http:';
+}
+
+/**
+ * In trusted reverse-proxy mode, compare Origin against the public Host that
+ * Traefik forwards, not the container's internal Host. Accept only a single
+ * authority token; otherwise fall back to the ordinary Host header.
+ */
+function forwardedHost(req) {
+  const raw = String(req.headers?.['x-forwarded-host'] || '').trim();
+  if (raw && !raw.includes(',') && !/[\s/?#@]/.test(raw)) return raw;
+  return req.headers?.host;
 }
 
 /**
