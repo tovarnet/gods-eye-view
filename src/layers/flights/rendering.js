@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { replayCursor } from './observedReplay.js';
 import { cyberSonarBaseAlpha } from '../../cyberSonar.js';
 import { selectModelEligible } from '../../data/modelEligibility.js';
 import { civilAircraftModelSpec } from './modelSpec.js';
@@ -861,6 +862,16 @@ export function createRendering({
         )
       : 0.08;
     flightState._lastFleetTickMs = nowMs;
+    const replay = flightState._replay;
+    if (replay?.active) {
+      replay.cursorMs = replayCursor(replay, nowMs);
+      // Reproducción completes automatically and returns to genuine EN VIVO.
+      // It never silently freezes at a past position posing as live.
+      if (replay.cursorMs >= replay.toMs) {
+        replay.active = false;
+        replay.cursorMs = null;
+      }
+    }
     // Every contact in this pass shares the same delayed display instant.
     const renderTime = Cesium.JulianDate.addSeconds(
       Cesium.JulianDate.now(flightState._scratchFleetRenderTime),
@@ -887,7 +898,7 @@ export function createRendering({
 
     // 3D model regime: only when enabled AND the camera is zoomed in past the altitude ceiling.
     // Drop all models the moment we leave it (toggled off / zoomed out) so billboards resume.
-    const useModels = _modelRegimeActive();
+    const useModels = !replay?.active && _modelRegimeActive();
     // Drop live models AND invalidate in-flight loads on leaving the regime (else a load that
     // resolves after zoom-out could briefly add a model outside the 3D-model regime).
     if (
@@ -975,6 +986,12 @@ export function createRendering({
         flightState._scratchFleetPos,
         renderTime,
       );
+      if (replay?.active && !dr) {
+        bb.show = false;
+        const model = flightState._models.get(icao24);
+        if (model) model.show = false;
+        continue;
+      }
       // The dead-reckoned point drifts away from the fix whose cell supplied the
       // height, so a grounded contact's sprite ends up under the mesh it taxied
       // (or coasted) over. Re-floor at the DISPLAYED coordinate — read-only, and
@@ -1001,7 +1018,8 @@ export function createRendering({
       // pass would hide a plane that is really just low over high-N terrain
       // waiting for its floor to warm (ATL grounded contacts at geoid −31 m).
       const beyondHorizon = !occluder.isPointVisible(
-        flightState._cullPositions.get(icao24) || bb.position,
+        (replay?.active ? null : flightState._cullPositions.get(icao24)) ||
+          bb.position,
       );
       // A billboard flipping INTO view (horizon reveal while the camera idles)
       // gets its rotation refreshed THIS tick even without a pose change —

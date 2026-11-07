@@ -203,6 +203,8 @@ export function createLifecycle({
      * @param {Cesium.Viewer} viewer
      */
     disable(viewer) {
+      flightState._replay.active = false;
+      flightState._replay.cursorMs = null;
       parts.controller._abortActiveUpdates();
       parts.tracking._cancelPendingTrackingRestore();
       if (flightState._billboardCollection)
@@ -247,6 +249,8 @@ export function createLifecycle({
      * @param {Cesium.Viewer} viewer
      */
     destroy(viewer) {
+      flightState._replay.active = false;
+      flightState._replay.cursorMs = null;
       flightState.lifetime.abort();
       flightState._enrichActive = 0;
       flightState._enrichLastDispatchMs = 0;

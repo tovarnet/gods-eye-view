@@ -1,5 +1,6 @@
 import { approxDistanceKm as _approxDistanceKm } from './recordPolicy.js';
 import { displayedKinematics } from '../../data/motionModel.js';
+import { replayWindow, replayCursor, REPLAY_SPEED } from './observedReplay.js';
 import * as Cesium from 'cesium';
 import { isExplicitLayerStateOrigin } from '../../data/layerState.js';
 import { modelVisualAnchor } from '../../data/modelVisualAnchor.js';
@@ -322,6 +323,23 @@ export function createQueries({
      * @param {{models3d?: boolean, models3dMode?: 'proximity'|'all', selectedFlightsTrackingId?: string|null}} params
      */
     setParams(params = {}, { origin = 'programmatic' } = {}) {
+      if (params.flightPlaybackMode === 'live') {
+        flightState._replay.active = false;
+        flightState._replay.cursorMs = null;
+        flightState._lastFleetTickMs = 0;
+      } else if (params.flightPlaybackMode === 'replay') {
+        const window = replayWindow(flightState._positionHistory);
+        if (!window) return false;
+        if (flightState._trackedIcao)
+          parts.tracking._clearTracking(false, { origin });
+        Object.assign(flightState._replay, {
+          active: true,
+          ...window,
+          startedMs: Date.now(),
+          cursorMs: window.fromMs,
+        });
+        flightState._lastFleetTickMs = 0;
+      }
       if (
         isExplicitLayerStateOrigin(origin) &&
         !Object.hasOwn(params, 'selectedFlightsTrackingId')
@@ -391,6 +409,39 @@ export function createQueries({
         }
       }
       return true;
+    },
+
+    getRowControls() {
+      const available = replayWindow(flightState._positionHistory);
+      const replay = flightState._replay;
+      const cursor = replayCursor(replay);
+      const stamp = cursor == null
+        ? ''
+        : new Date(cursor).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+      return {
+        info: replay.active
+          ? `REPRODUCCIÓN HISTÓRICA ×${REPLAY_SPEED} · ${stamp} · NO es posición actual`
+          : available
+            ? `EN VIVO VERIFICADO · ${available.tracks} aeronaves con historial para reproducir`
+            : 'EN VIVO VERIFICADO · reuniendo posiciones para reproducción histórica',
+        chips: [
+          {
+            id: 'flights-live',
+            label: 'EN VIVO',
+            title: 'Posiciones verificadas. No se predice movimiento.',
+            active: !replay.active,
+            params: { flightPlaybackMode: 'live' },
+          },
+          {
+            id: 'flights-history',
+            label: `HISTORIAL ×${REPLAY_SPEED}`,
+            title: 'Reproducir posiciones observadas del pasado, no actuales',
+            active: replay.active,
+            disabled: !available,
+            params: { flightPlaybackMode: 'replay' },
+          },
+        ],
+      };
     },
 
     getParams() {
@@ -980,7 +1031,9 @@ export function createQueries({
         status: flightState.feed._lastStatus,
         retryInSec,
         source: flightState.feed._lastSource,
-        coverage: flightState.feed._lastCoverage,
+        coverage: flightState._replay.active
+          ? `REPRODUCCIÓN HISTÓRICA ×${REPLAY_SPEED} · no en vivo`
+          : flightState.feed._lastCoverage,
       };
     },
   };

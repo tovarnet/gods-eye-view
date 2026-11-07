@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { observedReplayPair, replayCursor } from './observedReplay.js';
 import {
   COURSE_HOLD_SPEED_MPS,
   lerpAngleDeg,
@@ -152,6 +153,31 @@ export function createMotion({
     }
 
     const out = result || new Cesium.Cartesian3();
+
+    // Explicit replay: one historical UTC instant for the whole fleet, sampled
+    // strictly between two OBSERVED source positions. No extrapolation and no
+    // use of the latest/current location as a historical substitute.
+    if (flightState._replay?.active) {
+      const instantMs = Number.isFinite(flightState._replay.cursorMs)
+        ? flightState._replay.cursorMs
+        : replayCursor(flightState._replay);
+      const sample = observedReplayPair(history, instantMs);
+      flightState._drExtrapolating = false;
+      flightState._drProvenance = sample ? 'observed-replay' : 'replay-unavailable';
+      if (!sample) return null;
+      const { a, b, t } = sample;
+      const spanSeconds = Math.max(0.001, (b.epochMs - a.epochMs) / 1000);
+      const speedMps =
+        Cesium.Cartesian3.distance(a.position, b.position) / spanSeconds;
+      const trackFrom = Number.isFinite(a.track)
+        ? a.track
+        : info?.true_track || 0;
+      const trackTo = Number.isFinite(b.track) ? b.track : trackFrom;
+      flightState._drCourseDeg = lerpAngleDeg(trackFrom, trackTo, t);
+      flightState._drSpeedMps = speedMps;
+      flightState._drCourseHold = speedMps < COURSE_HOLD_SPEED_MPS;
+      return Cesium.Cartesian3.lerp(a.position, b.position, t, out);
+    }
 
     // VERIFIED mode: replay only the most recent OBSERVED segment. When a new
     // real fix arrives, the aircraft starts at the previous real fix and moves

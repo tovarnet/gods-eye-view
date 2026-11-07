@@ -128,6 +128,15 @@ export function createFlightState({ source, services }) {
    * between observed fixes; they never extrapolate beyond observed evidence.
    */
   flightState._verifiedPositionsOnly = true;
+  // Explicit, time-labeled replay of already-observed OpenSky fixes only.
+  // EN VIVO is always the default; replay is never restored from URL/session.
+  flightState._replay = {
+    active: false,
+    fromMs: 0,
+    toMs: 0,
+    startedMs: 0,
+    cursorMs: null,
+  };
 
   // ---------------------------------------------------------------------------
   // Click-to-track state
