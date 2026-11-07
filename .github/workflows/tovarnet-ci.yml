@@ -1,0 +1,44 @@
+name: TovarNet Mexico Transit CI
+
+on:
+  push:
+    branches:
+      - feature/mexico-transit
+  pull_request:
+    branches:
+      - production/atlas-ad009ea
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Doctor
+        run: npm run doctor
+      - name: Coolify Compose
+        env:
+          GEV_ALLOWED_HOSTS: atlas-lab.tovarnet.com.mx
+          GEV_KEY_SETUP_TRUSTED_PEERS: none
+          ATLAS_LOOPBACK_PORT: "4174"
+        run: docker compose -f compose.coolify.yaml config >/dev/null
+      - name: Format
+        run: npm run format:check
+      - name: Boundaries
+        run: npm run check:boundaries
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build

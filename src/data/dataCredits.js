@@ -435,6 +435,12 @@ export const DATA_CREDITS = [
     html: 'Transit vehicles: operator GTFS-Realtime feeds (each operator is credited below when its vehicles are shown)',
   },
   {
+    key: 'metrobus-cdmx-static',
+    html:
+      'Metrobús CDMX static network: official 2026 GTFS / Secretaría de Movilidad de la Ciudad de México — ' +
+      '<a href="https://www.datos.cdmx.gob.mx/dataset/gtfs" target="_blank" rel="noopener">Datos Abiertos CDMX</a> · CC BY 4.0',
+  },
+  {
     key: 'radio-browser',
     html:
       'Internet-radio station directory: ' +

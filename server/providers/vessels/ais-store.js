@@ -257,14 +257,52 @@ function vesselTypeFromAis(message, staticData = {}) {
   );
 }
 
-export function aisStreamRows(maxRows) {
+export function aisStreamRows(maxRows, area = null) {
   const cutoff = Date.now() - AISSTREAM_STALE_MS;
   const rows = [];
+  const filterArea =
+    Number.isFinite(area?.lat) &&
+    Number.isFinite(area?.lon) &&
+    Number.isFinite(area?.radiusKm) &&
+    area.radiusKm > 0
+      ? area
+      : null;
   for (const row of _aisStreamVessels.values()) {
-    if (row._updatedAt >= cutoff) rows.push(row);
+    if (row._updatedAt < cutoff) continue;
+    if (filterArea && !aisRowWithinRadius(row, filterArea)) continue;
+    rows.push(row);
   }
   rows.sort((a, b) => b._updatedAt - a._updatedAt);
   return rows.slice(0, maxRows).map(({ _updatedAt, ...row }) => row);
+}
+
+/**
+ * Great-circle distance gate for viewport-local AIS snapshots.
+ * Filtering happens before the maxRows cap so high-volume regions elsewhere
+ * cannot crowd vessels near the current camera out of the response.
+ */
+export function aisRowWithinRadius(row, area) {
+  const lat1 = Number(row?.lat);
+  const lon1 = Number(row?.lon);
+  const lat2 = Number(area?.lat);
+  const lon2 = Number(area?.lon);
+  const radiusKm = Number(area?.radiusKm);
+  if (
+    ![lat1, lon1, lat2, lon2, radiusKm].every(Number.isFinite) ||
+    radiusKm <= 0
+  )
+    return false;
+  const toRad = Math.PI / 180;
+  const dLat = (lat1 - lat2) * toRad;
+  const dLon = (lon1 - lon2) * toRad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) *
+      Math.cos(lat2 * toRad) *
+      Math.sin(dLon / 2) ** 2;
+  const distanceKm =
+    6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return distanceKm <= radiusKm;
 }
 
 function pruneAisStreamCache() {

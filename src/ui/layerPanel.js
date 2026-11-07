@@ -49,6 +49,7 @@ const PANEL_GROUPS = [
       'ais-live-vessels',
       'traffic',
       'transit',
+      'metrobus-cdmx',
       'bikeshare',
     ],
   },

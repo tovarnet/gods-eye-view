@@ -17,6 +17,7 @@ import { createApplicationDirections } from './layers/directions.js';
 import { createApplicationRecentImagery } from './layers/recentImagery.js';
 import { createApplicationOsmPlaces } from './layers/osmPlaces.js';
 import { createApplicationTransit } from './layers/transit.js';
+import { createMetrobusCdmxLayer } from '../layers/metrobusCdmx/index.js';
 import { createApplicationInstallations } from './layers/militaryInstallations.js';
 import { createApplicationSatellites } from './layers/satellites.js';
 import { createApplicationLaunches } from './layers/rocketLaunches.js';
@@ -47,6 +48,8 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
   Object.freeze({ id: 'local-adsb', disposition: 'local-only' }),
   // Voice search results belong to this session, like a receiver to this machine.
   Object.freeze({ id: 'osm-places', disposition: 'local-only' }),
+  // Experimental TovarNet static network; keep share-state codec untouched until realtime matures.
+  Object.freeze({ id: 'metrobus-cdmx', disposition: 'local-only' }),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
@@ -154,6 +157,7 @@ export function createApplicationCatalog({
         createApplicationCctv({ surface, source: sources.cctv }),
         createApplicationRadio({ surface, source: sources.radio }),
         createApplicationTransit({ surface, source: sources.transit }),
+        createMetrobusCdmxLayer(),
         createApplicationBikeshare({ source: sources.bikeshare }),
         createApplicationDirections({ source: sources.directions }),
         createApplicationRecentImagery({ source: sources['recent-imagery'] }),
