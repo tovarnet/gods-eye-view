@@ -103,6 +103,9 @@ export function createFlightState({ source, services }) {
   /** @type {Cesium.BillboardCollection|null} */
 
   flightState._billboardCollection = null;
+  /** Far-zoom trails built only from observed OpenSky fixes. */
+  flightState._fleetTrailCollection = null;
+  flightState._fleetTrails = new Map();
 
   /** @type {Map<string, Cesium.Billboard>} icao24 -> billboard primitive */
 

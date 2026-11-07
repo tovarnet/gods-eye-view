@@ -12,6 +12,10 @@ import {
 } from './recordPolicy.js';
 import { VERIFIED_POSITION_MAX_AGE_MS } from './policy.js';
 
+const FLEET_TRAIL_MIN_CAMERA_DISTANCE_M = 900_000;
+const FLEET_TRAIL_MAX_CAMERA_DISTANCE_M = 50_000_000;
+const GLOBAL_SPARSE_CANDIDATE_THRESHOLD = 500;
+
 /** True only when a position has a source timestamp recent enough for VERIFIED mode. */
 export function verifiedPositionIsFresh(
   observation,
@@ -39,12 +43,58 @@ export function createFlightSnapshotRenderer({
   const { warmGroundFloor } = groundFloor;
   const { sampleMeshFloorCells } = meshFloor;
 
+  function removeFleetTrail(icao24) {
+    const trail = flightState._fleetTrails.get(icao24);
+    if (trail && flightState._fleetTrailCollection)
+      flightState._fleetTrailCollection.remove(trail);
+    flightState._fleetTrails.delete(icao24);
+  }
+
+  function syncFleetTrail(icao24, history, meta) {
+    if (!flightState._fleetTrailCollection || meta?.onGround || history.length < 3) {
+      removeFleetTrail(icao24);
+      return;
+    }
+
+    // The newest observed fix is the endpoint currently being replayed toward,
+    // so the visible tail stops at the PREVIOUS real fix. It never runs ahead
+    // of the displayed aircraft and every vertex is an upstream observation.
+    const positions = history
+      .slice(0, -1)
+      .map((fix) => Cesium.Cartesian3.clone(fix.position));
+    if (positions.length < 2) {
+      removeFleetTrail(icao24);
+      return;
+    }
+
+    let trail = flightState._fleetTrails.get(icao24);
+    if (!trail) {
+      trail = flightState._fleetTrailCollection.add({
+        positions,
+        width: 1.6,
+        material: Cesium.Material.fromType('Color', {
+          color: Cesium.Color.fromCssColorString('#20d9ff').withAlpha(0.42),
+        }),
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
+          FLEET_TRAIL_MIN_CAMERA_DISTANCE_M,
+          FLEET_TRAIL_MAX_CAMERA_DISTANCE_M,
+        ),
+        show: true,
+      });
+      flightState._fleetTrails.set(icao24, trail);
+    } else {
+      trail.positions = positions;
+      trail.show = true;
+    }
+  }
+
   function evictContact(icao24) {
     if (icao24 === flightState._trackedIcao)
       tracking._clearTracking(false, { evicted: true });
     const bb = flightState._billboards.get(icao24);
     if (bb) flightState._billboardCollection.remove(bb);
     flightState._billboards.delete(icao24);
+    removeFleetTrail(icao24);
     rendering._releaseModel(icao24);
     records.forget(icao24);
     flightState._cullPositions.delete(icao24);
@@ -94,6 +144,7 @@ export function createFlightSnapshotRenderer({
         if (dupe) {
           flightState._billboardCollection.remove(dupe);
           flightState._billboards.delete(icao24);
+          removeFleetTrail(icao24);
           rendering._releaseModel(icao24); // military-suppression: drop any 3D model too
           records.forget(icao24);
           flightState._cullPositions.delete(icao24);
@@ -165,6 +216,7 @@ export function createFlightSnapshotRenderer({
         // live after touchdown (grounded flights positions are already
         // surface-clamped via the surfaceM chain, so the ground leg drapes).
         if (isTracked) tracking._appendTrailFix(position.clone());
+        syncFleetTrail(icao24, history, meta);
       } else {
         const modelOwnsGroundVisual = rendering._modelOwnsVisual(icao24);
         if (!modelOwnsGroundVisual) {
@@ -304,6 +356,20 @@ export function createFlightSnapshotRenderer({
           continue;
         }
       }
+      // A healthy global OpenSky snapshot normally contains thousands of
+      // position-bearing contacts. If a global snapshot suddenly collapses,
+      // treat it as partial for one VERIFIED freshness window instead of
+      // erasing whole countries. We retain only contacts whose last received
+      // observation is still recent enough to be honest.
+      if (
+        snapshot.scope?.globalView &&
+        Number.isFinite(snapshot.totalViewCandidates) &&
+        snapshot.totalViewCandidates < GLOBAL_SPARSE_CANDIDATE_THRESHOLD
+      ) {
+        const lastReceipt = records.data.get(icao24)?.observedReceiptMs ?? 0;
+        if (nowMs - lastReceipt < VERIFIED_POSITION_MAX_AGE_MS) continue;
+      }
+
       const absence = records.absence(icao24, {
         complete: snapshot.complete,
         retainIds: snapshot.retainIds,

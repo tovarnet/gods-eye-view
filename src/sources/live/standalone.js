@@ -49,7 +49,9 @@ function flightPriority(record, trackedId) {
 }
 
 const GLOBAL_GRID_DEG = 10;
-const GLOBAL_MEXICO_RESERVE = 140;
+const GLOBAL_SPARSE_CANDIDATE_THRESHOLD = 500;
+const GLOBAL_MEXICO_RESERVE = 170;
+const GLOBAL_NORTH_AMERICA_RESERVE = 300;
 const MEXICO_CONTEXT_MAX = 100;
 
 // Coarse operational footprint of Mexico used only for display admission.
@@ -133,6 +135,17 @@ function inMexicoRegion(record) {
   return pointIsInMexico(record?.longitude, record?.latitude);
 }
 
+function inNorthAmericaRegion(record) {
+  return (
+    Number.isFinite(record?.latitude) &&
+    Number.isFinite(record?.longitude) &&
+    record.latitude >= 7 &&
+    record.latitude <= 75 &&
+    record.longitude >= -170 &&
+    record.longitude <= -50
+  );
+}
+
 function pointIsInMexicoFocus(latitude, longitude) {
   return pointIsInMexico(longitude, latitude);
 }
@@ -198,6 +211,20 @@ function globallyDistributedFlights(records, maxRows, trackedId) {
     .sort((a, b) => stableFlightRank(a.id) - stableFlightRank(b.id));
   for (const record of mexico.slice(0, GLOBAL_MEXICO_RESERVE)) add(record);
 
+  // The operator frequently moves between Mexico and the United States.
+  // Keep a meaningful North-American density at globe scale while preserving
+  // more than half the global budget for the rest of the world.
+  const northAmerica = records
+    .filter(
+      (record) =>
+        inNorthAmericaRegion(record) &&
+        !inMexicoRegion(record) &&
+        !selectedIds.has(record.id),
+    )
+    .sort((a, b) => stableFlightRank(a.id) - stableFlightRank(b.id));
+  for (const record of northAmerica.slice(0, GLOBAL_NORTH_AMERICA_RESERVE))
+    add(record);
+
   const buckets = new Map();
   for (const record of records) {
     if (
@@ -253,7 +280,11 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
   if (query.globalView === true) {
     const candidates = snapshot.records || [];
     const records = globallyDistributedFlights(candidates, maxRows, trackedId);
-    const viewCoverage = `global distributed · ${records.length}/${candidates.length} shown · Mexico priority`;
+    const sparse =
+      candidates.length < GLOBAL_SPARSE_CANDIDATE_THRESHOLD
+        ? ' · upstream sparse'
+        : '';
+    const viewCoverage = `global distributed · ${records.length}/${candidates.length} shown · Mexico + North America priority${sparse}`;
     return {
       ...snapshot,
       records,

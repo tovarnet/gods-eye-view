@@ -21,7 +21,7 @@ export function flightViewportPolicy(cameraHeightM) {
   const globalView =
     Number.isFinite(cameraHeightM) && cameraHeightM >= FLIGHT_GLOBAL_ALTITUDE_M;
   const maxRows = globalView
-    ? 700
+    ? 900
     : heightKm < 120
       ? 260
       : heightKm < 500

@@ -51,6 +51,9 @@ export function createLifecycle({
       flightState._billboardCollection = new Cesium.BillboardCollection();
       viewer.scene.primitives.add(flightState._billboardCollection);
       registerSpriteCollection('flights', flightState._billboardCollection);
+      flightState._fleetTrailCollection = new Cesium.PolylineCollection();
+      viewer.scene.primitives.add(flightState._fleetTrailCollection);
+      flightState._fleetTrails = new Map();
       flightState._modelCollection = new Cesium.PrimitiveCollection();
       viewer.scene.primitives.add(flightState._modelCollection);
       // Warm the glTF cache so the tracked plane's model instantiates instantly when first needed
@@ -136,6 +139,8 @@ export function createLifecycle({
     enable(viewer) {
       if (flightState._billboardCollection)
         flightState._billboardCollection.show = true;
+      if (flightState._fleetTrailCollection)
+        flightState._fleetTrailCollection.show = true;
       holdContinuousRender('flights'); // per-frame animator (perf wave 2)
       if (flightState._modelCollection)
         flightState._modelCollection.show = true;
@@ -202,6 +207,8 @@ export function createLifecycle({
       parts.tracking._cancelPendingTrackingRestore();
       if (flightState._billboardCollection)
         flightState._billboardCollection.show = false;
+      if (flightState._fleetTrailCollection)
+        flightState._fleetTrailCollection.show = false;
       releaseContinuousRender('flights');
       parts.rendering._releaseModels();
       if (flightState._modelCollection)
@@ -286,6 +293,11 @@ export function createLifecycle({
         viewer.scene.primitives.remove(flightState._billboardCollection);
         flightState._billboardCollection = null;
       }
+      if (flightState._fleetTrailCollection) {
+        viewer.scene.primitives.remove(flightState._fleetTrailCollection);
+        flightState._fleetTrailCollection = null;
+      }
+      flightState._fleetTrails.clear();
       if (flightState._modelCollection) {
         viewer.scene.primitives.remove(flightState._modelCollection); // removing destroys it + its models
         flightState._modelCollection = null;
