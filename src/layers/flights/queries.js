@@ -413,14 +413,14 @@ export function createQueries({
 
     getRowControls() {
       const available = replayWindow(flightState._positionHistory);
-      const replay = flightState._replay;
+      const replay = flightState._replay || { active: false };
       const cursor = replayCursor(replay);
       const stamp = cursor == null
         ? ''
         : new Date(cursor).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
       return {
         info: replay.active
-          ? `REPRODUCCIÓN HISTÓRICA ×${REPLAY_SPEED} · ${stamp} · NO es posición actual`
+          ? `REPRODUCCIÓN HISTÓRICA ×${REPLAY_SPEED} · ${stamp} · movimiento interpolado entre posiciones observadas · NO es posición actual`
           : available
             ? `EN VIVO VERIFICADO · ${available.tracks} aeronaves con historial para reproducir`
             : 'EN VIVO VERIFICADO · reuniendo posiciones para reproducción histórica',
@@ -1031,7 +1031,7 @@ export function createQueries({
         status: flightState.feed._lastStatus,
         retryInSec,
         source: flightState.feed._lastSource,
-        coverage: flightState._replay.active
+        coverage: flightState._replay?.active
           ? `REPRODUCCIÓN HISTÓRICA ×${REPLAY_SPEED} · no en vivo`
           : flightState.feed._lastCoverage,
       };

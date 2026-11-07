@@ -46,8 +46,8 @@ test('replay eligibility requires multiple fresh observed tracks and honest time
     ['c', [fix(now - 70_000), fix(now - 15_000)]],
   ]);
   assert.deepEqual(replayWindow(map, now), {
-    fromMs: now - 90_000,
-    toMs: now - 5000,
+    fromMs: now - 80_000,
+    toMs: now - 15_000,
     tracks: 3,
   });
   assert.equal(replayWindow(new Map([...map].slice(0, 2)), now), null);

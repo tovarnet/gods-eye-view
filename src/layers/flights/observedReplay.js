@@ -11,25 +11,29 @@ function epoch(fix) {
 }
 
 export function replayWindow(histories, nowMs = Date.now()) {
-  let earliest = Infinity;
-  let latest = -Infinity;
-  let tracks = 0;
+  const starts = [];
+  const ends = [];
   for (const history of histories.values()) {
     if (!history || history.length < 2) continue;
     const a = epoch(history[0]);
     const b = epoch(history[history.length - 1]);
     if (a == null || b == null || b <= a) continue;
     if (b < nowMs - 8 * 60 * 1000 || b > nowMs + 30 * 1000) continue;
-    tracks++;
-    earliest = Math.min(earliest, a);
-    latest = Math.max(latest, b);
+    starts.push(a);
+    ends.push(b);
   }
-  if (tracks < 3 || latest - earliest < 15_000) return null;
-  return {
-    fromMs: Math.max(earliest, latest - REPLAY_WINDOW_MS),
-    toMs: latest,
-    tracks,
-  };
+  if (starts.length < 3) return null;
+  starts.sort((a, b) => a - b);
+  ends.sort((a, b) => a - b);
+  // Choose a common historical interval rather than the oldest outlier.
+  // This keeps most of the fleet visible from the first replay frame.
+  const fromMs = Math.max(
+    starts[Math.floor((starts.length - 1) * 0.6)],
+    ends[Math.floor((ends.length - 1) * 0.25)] - REPLAY_WINDOW_MS,
+  );
+  const toMs = ends[Math.floor((ends.length - 1) * 0.25)];
+  if (toMs - fromMs < 15_000) return null;
+  return { fromMs, toMs, tracks: starts.length };
 }
 
 export function replayCursor(replay, nowMs = Date.now()) {
