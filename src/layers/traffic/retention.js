@@ -72,6 +72,8 @@ export function createRetention({ state, parts }) {
         state._pointCollection.remove(dot.point);
         if (dot.billboard && state._trafficBillboards)
           state._trafficBillboards.remove(dot.billboard);
+        if (dot.label && state._trafficLabels)
+          state._trafficLabels.remove(dot.label);
         const last = state._dots.pop();
         if (last !== dot) {
           state._dots[dot.index] = last;
@@ -204,6 +206,21 @@ export function createRetention({ state, parts }) {
     if (!state._dots.length && timer === null) pump();
     else schedule();
   }
+  function transferDot(dot, nextRoad) {
+    if (!dot || !nextRoad?.key || dot.road?.key === nextRoad.key) return false;
+    const from = records.get(dot.road?.key);
+    const to = records.get(nextRoad.key);
+    if (!to?.wanted || !to.road?.flow || to.road.flow.closure) return false;
+
+    if (from) {
+      const index = from.dots.indexOf(dot);
+      if (index >= 0) from.dots.splice(index, 1);
+    }
+    if (!to.dots.includes(dot)) to.dots.push(dot);
+    dot.road = to.road;
+    return true;
+  }
+
   function easeHeights(dt) {
     const blend = Math.min(1, dt * 12);
     const scene = state._viewer?.scene;
@@ -291,5 +308,12 @@ export function createRetention({ state, parts }) {
     state._populationPending = false;
     state._heightPending = false;
   }
-  return { reconcile, easeHeights, finishHeights, clear, refreshCounts };
+  return {
+    reconcile,
+    transferDot,
+    easeHeights,
+    finishHeights,
+    clear,
+    refreshCounts,
+  };
 }

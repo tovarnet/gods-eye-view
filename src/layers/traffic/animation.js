@@ -51,6 +51,112 @@ export function createAnimation({
     return canvas;
   }
 
+  function flowMarkerText(id) {
+    return `F-${String(Math.abs(id) % 1000).padStart(3, '0')}`;
+  }
+
+  function roadTravelVector(road, entering = false) {
+    const n = road?.waypoints?.length || 0;
+    if (n < 2) return null;
+    const direction = road.oneway || 1;
+    let a, b;
+    if (direction > 0) {
+      a = entering ? road.waypoints[0] : road.waypoints[n - 2];
+      b = entering ? road.waypoints[1] : road.waypoints[n - 1];
+    } else {
+      a = entering ? road.waypoints[n - 1] : road.waypoints[1];
+      b = entering ? road.waypoints[n - 2] : road.waypoints[0];
+    }
+    const vector = Cesium.Cartesian3.subtract(b, a, new Cesium.Cartesian3());
+    const magnitude = Cesium.Cartesian3.magnitude(vector);
+    return magnitude > 0.001
+      ? Cesium.Cartesian3.divideByScalar(vector, magnitude, vector)
+      : null;
+  }
+
+  function roadEntryPoint(road) {
+    if (!road?.waypoints?.length) return null;
+    return (road.oneway || 1) > 0
+      ? road.waypoints[0]
+      : road.waypoints[road.waypoints.length - 1];
+  }
+
+  function roadExitPoint(road) {
+    if (!road?.waypoints?.length) return null;
+    return (road.oneway || 1) > 0
+      ? road.waypoints[road.waypoints.length - 1]
+      : road.waypoints[0];
+  }
+
+  function bestContinuation(dot) {
+    if (!layerState._liveMode || !dot?.road) return null;
+    const exit = roadExitPoint(dot.road);
+    const outgoing = roadTravelVector(dot.road, false);
+    if (!exit || !outgoing) return null;
+
+    let best = null;
+    let bestScore = Infinity;
+    for (const road of layerState._roads) {
+      if (
+        road === dot.road ||
+        road.key === dot.road.key ||
+        !road.flow ||
+        road.flow.closure ||
+        road.waypoints?.length < 2
+      )
+        continue;
+      const entry = roadEntryPoint(road);
+      if (!entry) continue;
+      const distance = Cesium.Cartesian3.distance(exit, entry);
+      if (distance > 32) continue;
+
+      const incoming = roadTravelVector(road, true);
+      if (!incoming) continue;
+      const alignment = Cesium.Cartesian3.dot(outgoing, incoming);
+      // Avoid U-turns / side streets. Color changes on the same road are
+      // essentially collinear and score very highly.
+      if (alignment < 0.55) continue;
+
+      const classPenalty =
+        road.roadClass && dot.road.roadClass && road.roadClass !== dot.road.roadClass
+          ? 8
+          : 0;
+      const score = distance + (1 - alignment) * 24 + classPenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        best = road;
+      }
+    }
+    return best;
+  }
+
+  function adoptContinuation(dot, road, now) {
+    if (!parts.retention.transferDot?.(dot, road)) return false;
+    dot.road = road;
+    dot.waypoints = road.waypoints;
+    dot.segmentDist = road.segmentDist;
+    dot.numSegments = road.waypoints.length - 1;
+    dot.direction = road.oneway || 1;
+    dot.segIdx = dot.direction > 0 ? 0 : dot.numSegments - 1;
+    dot.t = dot.direction > 0 ? 0 : 1;
+    dot.retiring = 0;
+    dot.recycle = false;
+    dot.respawnAt = 0;
+    dot.born = Math.min(dot.born || now, now - DOT_FADE_MS);
+
+    const flow = road.flow;
+    const bucket = flow ? flowBucket(flow.level) : null;
+    dot.bucket = bucket;
+    dot.baseMps = (SPEED_MPS[road.type] || 5) * layerState._speedScale;
+    dot.mps = dot.baseMps * (flow ? flowSpeedScale(flow.level) : 1);
+    if (dot.billboard)
+      dot.billboard.color = bucket
+        ? layerState._activeBucketColors[bucket].withAlpha(1)
+        : Cesium.Color.WHITE;
+    billboardRotation(dot);
+    return true;
+  }
+
   function billboardRotation(dot) {
     if (!dot?.billboard || !layerState._viewer) return;
     const scene = layerState._viewer.scene;
@@ -282,6 +388,29 @@ export function createAnimation({
               horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
             })
           : null;
+      const label =
+        layerState._liveMode && layerState._trafficLabels
+          ? layerState._trafficLabels.add({
+              position: Cesium.Cartesian3.clone(layerState._scratchLerp),
+              text: flowMarkerText(id),
+              font: '10px monospace',
+              fillColor: Cesium.Color.WHITE.withAlpha(0.95),
+              outlineColor: Cesium.Color.BLACK.withAlpha(0.95),
+              outlineWidth: 3,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new Cesium.Cartesian2(0, -17),
+              scaleByDistance: new Cesium.NearFarScalar(80, 1.0, 3500, 0.65),
+              translucencyByDistance: new Cesium.NearFarScalar(
+                80,
+                1.0,
+                6000,
+                0.0,
+              ),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            })
+          : null;
       layerState._bucketCounts[bucket || 'sim'] += 1;
 
       layerState._motion.added++;
@@ -295,6 +424,7 @@ export function createAnimation({
         respawnAt: 0,
         point,
         billboard,
+        label,
         road,
         bucket, // flow bucket at spawn (null = sim) — drives preset restyle/pulse
         waypoints: road.waypoints,
@@ -356,6 +486,7 @@ export function createAnimation({
         if (layerState._liveMode && now < dot.respawnAt) {
           dot.point.pixelSize = 0;
           if (dot.billboard) dot.billboard.scale = 0;
+          if (dot.label) dot.label.show = false;
           continue;
         }
         dot.id = layerState._nextDotId++;
@@ -364,6 +495,10 @@ export function createAnimation({
         dot.born = now;
         dot.respawnAt = 0;
         dot.recycle = false;
+        if (dot.label) {
+          dot.label.text = flowMarkerText(dot.id);
+          dot.label.show = true;
+        }
         layerState._motion.recycled++;
         billboardRotation(dot);
       }
@@ -389,6 +524,7 @@ export function createAnimation({
         ? Math.max(0.1, visibility)
         : dot.nominalSize * visibility;
       if (dot.billboard) dot.billboard.scale = visibility;
+      if (dot.label) dot.label.show = visibility > 0.35;
 
       // Stop-and-go creep (jam-viz density prototype, live jam dots only):
       // alternate short forward bursts with stops. The burst multiplier keeps
@@ -417,12 +553,18 @@ export function createAnimation({
         travel -= available;
         const next = dot.segIdx + dot.direction;
         if (next < 0 || next >= dot.numSegments) {
+          if (layerState._liveMode) {
+            const continuation = bestContinuation(dot);
+            if (continuation && adoptContinuation(dot, continuation, now)) {
+              // Preserve leftover travel through the color/segment boundary.
+              continue;
+            }
+          }
           dot.t = dot.direction > 0 ? 1 : 0;
           dot.point.pixelSize = 0;
           if (dot.billboard) dot.billboard.scale = 0;
+          if (dot.label) dot.label.show = false;
           dot.recycle = true;
-          // Deterministic 0.9–2.0 s entry gap: enough to read as a car leaving
-          // one monitored segment and another entering later, never teleporting.
           dot.respawnAt = layerState._liveMode
             ? now + 900 + ((dot.id * 137) % 1100)
             : now;
@@ -449,6 +591,7 @@ export function createAnimation({
         // keep the top-down car aligned with the apparent lane direction.
         if ((layerState._animFrame + i) % 8 === 0) billboardRotation(dot);
       }
+      if (dot.label) dot.label.position = layerState._scratchLerp;
     }
 
     // Jam heat-lines throb (~1.6 s period) — one shared material uniform for
@@ -489,6 +632,7 @@ export function createAnimation({
     if (layerState._dots.length) layerState._motion.rebuilds++;
     if (layerState._pointCollection) layerState._pointCollection.removeAll();
     if (layerState._trafficBillboards) layerState._trafficBillboards.removeAll();
+    if (layerState._trafficLabels) layerState._trafficLabels.removeAll();
     parts.rendering.removeHeatLines();
     layerState._dots = [];
     layerState._roads = [];

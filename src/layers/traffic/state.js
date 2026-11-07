@@ -26,6 +26,8 @@ export function createState({ services }) {
 
   /** @type {Cesium.BillboardCollection|null} Representative live-flow cars. */
   layerState._trafficBillboards = null;
+  /** @type {Cesium.LabelCollection|null} Visual flow IDs (not license plates). */
+  layerState._trafficLabels = null;
   layerState._trafficCarSprite = null;
 
   /** @type {Array<{point:Cesium.PointPrimitive, waypoints:Cesium.Cartesian3[], segmentDist:number[], numSegments:number, segIdx:number, t:number, mps:number, direction:number, stoppedUntil:number}>} Active animated dots */
