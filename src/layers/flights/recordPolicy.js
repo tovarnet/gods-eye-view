@@ -3,7 +3,7 @@ export const GROUND_FLOOR_CLAMP_RADIUS_KM = 150;
 export const GROUND_FLOOR_WARM_MAX_ALT_M = 4500;
 
 /** Maximum feed fixes retained for dead reckoning. */
-export const POSITION_HISTORY_LIMIT = 5;
+export const POSITION_HISTORY_LIMIT = 8;
 
 export const LANDED_MISSING_POLL_LIMIT = 1;
 

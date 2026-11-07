@@ -260,6 +260,12 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
       retainIds: new Set(),
       complete: true,
       viewportScoped: true,
+      scope: {
+        globalView: true,
+        latitude: Number.isFinite(latitude) ? latitude : null,
+        longitude: Number.isFinite(longitude) ? longitude : null,
+        radiusKm: null,
+      },
       totalViewCandidates: candidates.length,
       coverage: baseCoverage ? `${baseCoverage}; ${viewCoverage}` : viewCoverage,
     };
@@ -326,6 +332,12 @@ export function scopeFlightSnapshot(snapshot, query = {}) {
     retainIds: new Set(),
     complete: true,
     viewportScoped: true,
+    scope: {
+      globalView: false,
+      latitude,
+      longitude,
+      radiusKm,
+    },
     totalViewCandidates: candidates.length,
     coverage: baseCoverage ? `${baseCoverage}; ${viewCoverage}` : viewCoverage,
   };

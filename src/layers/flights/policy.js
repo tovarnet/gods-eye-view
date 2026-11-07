@@ -145,7 +145,7 @@ export const TRAIL_MAX_POINTS = 400;
 
 /** @constant {number} Display latency in seconds (= one poll interval). */
 
-export const RENDER_DELAY_SEC = 30;
+export const RENDER_DELAY_SEC = 20;
 
 /**
  * VERIFIED mode: never present an aircraft position older than this as current.

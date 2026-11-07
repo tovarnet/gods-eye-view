@@ -6,7 +6,10 @@ import {
   synthesizeForwardKinematicsFix,
 } from '../../data/motionModel.js';
 import { aircraftIcon } from '../../data/aircraftIcons.js';
-import { POSITION_HISTORY_LIMIT } from './recordPolicy.js';
+import {
+  POSITION_HISTORY_LIMIT,
+  approxDistanceKm,
+} from './recordPolicy.js';
 import { VERIFIED_POSITION_MAX_AGE_MS } from './policy.js';
 
 /** True only when a position has a source timestamp recent enough for VERIFIED mode. */
@@ -276,12 +279,29 @@ export function createFlightSnapshotRenderer({
     // feed gap, and the full grace left phantom planes parked at airports.
     for (const [icao24, bb] of flightState._billboards) {
       if (currentIcaos.has(icao24)) continue;
-      // A viewport-scoped snapshot intentionally excludes off-view / thinned
-      // contacts. Remove them immediately instead of letting three poll cycles
-      // accumulate a ghost swarm from the previous camera position.
-      if (snapshot.viewportScoped) {
-        evictContact(icao24);
-        continue;
+      // Viewport-scoped snapshots are not proof that an in-scope aircraft
+      // vanished: OpenSky can omit a contact for one poll. Remove immediately
+      // only when the last verified fix is actually outside the current
+      // regional scope; otherwise keep the normal missing-poll grace.
+      if (snapshot.viewportScoped && !snapshot.scope?.globalView) {
+        const info = records.data.get(icao24);
+        const scope = snapshot.scope;
+        const outside =
+          Number.isFinite(info?.rawLat) &&
+          Number.isFinite(info?.rawLon) &&
+          Number.isFinite(scope?.latitude) &&
+          Number.isFinite(scope?.longitude) &&
+          Number.isFinite(scope?.radiusKm) &&
+          approxDistanceKm(
+            scope.latitude,
+            scope.longitude,
+            info.rawLat,
+            info.rawLon,
+          ) > scope.radiusKm * 1.08;
+        if (outside) {
+          evictContact(icao24);
+          continue;
+        }
       }
       const absence = records.absence(icao24, {
         complete: snapshot.complete,
