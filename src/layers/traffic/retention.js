@@ -70,6 +70,8 @@ export function createRetention({ state, parts }) {
         const dot = record.dots[i];
         if (!dot.retiring || now - dot.retiring < DOT_FADE_MS) continue;
         state._pointCollection.remove(dot.point);
+        if (dot.billboard && state._trafficBillboards)
+          state._trafficBillboards.remove(dot.billboard);
         const last = state._dots.pop();
         if (last !== dot) {
           state._dots[dot.index] = last;

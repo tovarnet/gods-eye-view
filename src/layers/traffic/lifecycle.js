@@ -27,9 +27,14 @@ export function createLifecycle({
       layerState._pointCollection = new Cesium.PointPrimitiveCollection({
         blendOption: Cesium.BlendOption.TRANSLUCENT,
       });
+      layerState._trafficBillboards = new Cesium.BillboardCollection({
+        blendOption: Cesium.BlendOption.TRANSLUCENT,
+      });
       // Add permanently — toggle with .show to avoid destroy-on-remove errors
       viewer.scene.primitives.add(layerState._pointCollection);
+      viewer.scene.primitives.add(layerState._trafficBillboards);
       layerState._pointCollection.show = false;
+      layerState._trafficBillboards.show = false;
       layerState._dots = [];
       layerState._roads = [];
       layerState._count = 0;
@@ -85,6 +90,7 @@ export function createLifecycle({
       parts.animation.syncRenderDemand();
       layerState._lastAnimTime = 0;
       layerState._pointCollection.show = true;
+      if (layerState._trafficBillboards) layerState._trafficBillboards.show = true;
 
       layerState._preRenderRemover = viewer.scene.preRender.addEventListener(
         parts.animation.animate,
@@ -186,6 +192,7 @@ export function createLifecycle({
       layerState._arrivalRemover = null;
       releaseCameraSensitivity(viewer.camera, 'traffic');
       if (layerState._pointCollection) layerState._pointCollection.show = false;
+      if (layerState._trafficBillboards) layerState._trafficBillboards.show = false;
     },
 
     /**
@@ -199,6 +206,10 @@ export function createLifecycle({
       if (layerState._pointCollection) {
         viewer.scene.primitives.remove(layerState._pointCollection);
         layerState._pointCollection = null;
+      }
+      if (layerState._trafficBillboards) {
+        viewer.scene.primitives.remove(layerState._trafficBillboards);
+        layerState._trafficBillboards = null;
       }
       parts.rendering.removeHeatLines();
       layerState._tileCache.clear();

@@ -20,6 +20,50 @@ export function createAnimation({
   parts,
   source,
 }) {
+  function trafficCarSprite() {
+    if (layerState._trafficCarSprite) return layerState._trafficCarSprite;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, 64, 32);
+    // Soft halo keeps the sprite legible over satellite imagery.
+    ctx.shadowColor = 'rgba(0,0,0,.75)';
+    ctx.shadowBlur = 5;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(9, 7, 46, 18, 7);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Windshield / roof detail: enough to read as a top-down car at small size.
+    ctx.fillStyle = 'rgba(25,35,45,.78)';
+    ctx.beginPath();
+    ctx.roundRect(25, 9, 17, 14, 4);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(10,10,10,.92)';
+    ctx.fillRect(12, 4, 10, 4);
+    ctx.fillRect(42, 4, 10, 4);
+    ctx.fillRect(12, 24, 10, 4);
+    ctx.fillRect(42, 24, 10, 4);
+    layerState._trafficCarSprite = canvas;
+    return canvas;
+  }
+
+  function billboardRotation(dot) {
+    if (!dot?.billboard || !layerState._viewer) return;
+    const scene = layerState._viewer.scene;
+    const a = dot.waypoints?.[dot.segIdx];
+    const b = dot.waypoints?.[dot.segIdx + 1];
+    if (!a || !b) return;
+    const pa = Cesium.SceneTransforms.worldToWindowCoordinates(scene, a);
+    const pb = Cesium.SceneTransforms.worldToWindowCoordinates(scene, b);
+    if (!pa || !pb) return;
+    let angle = -Math.atan2(pb.y - pa.y, pb.x - pa.x);
+    if (dot.direction < 0) angle += Math.PI;
+    dot.billboard.rotation = angle;
+  }
   function syncRenderDemand() {
     const needed = Boolean(
       layerState._enabled &&
@@ -168,9 +212,12 @@ export function createAnimation({
       const id = layerState._nextDotId++;
       const point = layerState._pointCollection.add({
         position: Cesium.Cartesian3.clone(layerState._scratchLerp),
-        pixelSize,
-        // No flow data → today's exact simulated white.
-        color: flowColor || Cesium.Color.WHITE.withAlpha(0.85),
+        // In live mode this point is an invisible motion anchor; the user sees
+        // the car billboard. Simulation mode keeps the legacy point rendering.
+        pixelSize: layerState._liveMode ? 1 : pixelSize,
+        color: layerState._liveMode
+          ? Cesium.Color.TRANSPARENT
+          : flowColor || Cesium.Color.WHITE.withAlpha(0.85),
         scaleByDistance: new Cesium.NearFarScalar(
           100,
           1.5,
@@ -191,10 +238,35 @@ export function createAnimation({
           ? { outlineColor, outlineWidth: outlineSpec.width }
           : {}),
       });
+      const billboard =
+        layerState._liveMode && layerState._trafficBillboards
+          ? layerState._trafficBillboards.add({
+              position: Cesium.Cartesian3.clone(layerState._scratchLerp),
+              image: trafficCarSprite(),
+              width: 24,
+              height: 12,
+              color: flowColor || Cesium.Color.WHITE,
+              scaleByDistance: new Cesium.NearFarScalar(
+                80,
+                1.45,
+                Math.max(16000, layerState._fadeScaleFar * 1.6),
+                0.7,
+              ),
+              translucencyByDistance: new Cesium.NearFarScalar(
+                80,
+                1.0,
+                Math.max(18000, layerState._fadeTransFar * 1.6),
+                0.42,
+              ),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              verticalOrigin: Cesium.VerticalOrigin.CENTER,
+              horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+            })
+          : null;
       layerState._bucketCounts[bucket || 'sim'] += 1;
 
       layerState._motion.added++;
-      layerState._dots.push({
+      const dot = {
         id,
         index: layerState._dots.length,
         born: now,
@@ -202,6 +274,7 @@ export function createAnimation({
         nominalSize: pixelSize,
         recycle: false,
         point,
+        billboard,
         road,
         bucket, // flow bucket at spawn (null = sim) — drives preset restyle/pulse
         waypoints: road.waypoints,
@@ -221,7 +294,9 @@ export function createAnimation({
           parts.style.jamDensityOn()
             ? { moving: Math.random() < 0.4, until: now + Math.random() * 2000 }
             : null,
-      });
+      };
+      layerState._dots.push(dot);
+      billboardRotation(dot);
     }
     syncRenderDemand();
   }
@@ -273,17 +348,19 @@ export function createAnimation({
             ? dot.t * dot.segmentDist[0]
             : Infinity;
       const endpointFade = Math.min(1, remaining / Math.max(1, dot.mps * 0.25));
-      dot.point.pixelSize =
-        dot.nominalSize *
-        Math.max(
-          0,
-          Math.min(
-            1,
-            (now - dot.born) / DOT_FADE_MS,
-            dot.retiring ? 1 - (now - dot.retiring) / DOT_FADE_MS : 1,
-            endpointFade,
-          ),
-        );
+      const visibility = Math.max(
+        0,
+        Math.min(
+          1,
+          (now - dot.born) / DOT_FADE_MS,
+          dot.retiring ? 1 - (now - dot.retiring) / DOT_FADE_MS : 1,
+          endpointFade,
+        ),
+      );
+      dot.point.pixelSize = layerState._liveMode
+        ? Math.max(0.1, visibility)
+        : dot.nominalSize * visibility;
+      if (dot.billboard) dot.billboard.scale = visibility;
 
       // Stop-and-go creep (jam-viz density prototype, live jam dots only):
       // alternate short forward bursts with stops. The burst multiplier keeps
@@ -314,6 +391,7 @@ export function createAnimation({
         if (next < 0 || next >= dot.numSegments) {
           dot.t = dot.direction > 0 ? 1 : 0;
           dot.point.pixelSize = 0;
+          if (dot.billboard) dot.billboard.scale = 0;
           dot.recycle = true;
           break;
         }
@@ -332,6 +410,12 @@ export function createAnimation({
       const b = dot.waypoints[dot.segIdx + 1];
       Cesium.Cartesian3.lerp(a, b, dot.t, layerState._scratchLerp);
       dot.point.position = layerState._scratchLerp;
+      if (dot.billboard) {
+        dot.billboard.position = layerState._scratchLerp;
+        // Refresh orientation periodically so camera rotation and road bends
+        // keep the top-down car aligned with the apparent lane direction.
+        if ((layerState._animFrame + i) % 8 === 0) billboardRotation(dot);
+      }
     }
 
     // Jam heat-lines throb (~1.6 s period) — one shared material uniform for
@@ -371,6 +455,7 @@ export function createAnimation({
     parts.retention.clear();
     if (layerState._dots.length) layerState._motion.rebuilds++;
     if (layerState._pointCollection) layerState._pointCollection.removeAll();
+    if (layerState._trafficBillboards) layerState._trafficBillboards.removeAll();
     parts.rendering.removeHeatLines();
     layerState._dots = [];
     layerState._roads = [];

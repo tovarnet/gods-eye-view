@@ -372,16 +372,24 @@ export function createModel({ state: layerState, services, parts, source }) {
       dot.road.flow = flow;
       if (flow?.closure || (!flow && layerState._uncoveredMode === 'hide')) {
         dot.point.show = false;
+        if (dot.billboard) dot.billboard.show = false;
         dot.mps = 0;
         closedDots += 1;
         continue;
       }
       dot.point.show = true;
+      if (dot.billboard) dot.billboard.show = true;
       const bucket = flow ? flowBucket(flow.level) : null;
       dot.bucket = bucket;
-      dot.point.color = bucket
-        ? layerState._activeBucketColors[bucket]
-        : Cesium.Color.WHITE.withAlpha(0.85);
+      dot.point.color = layerState._liveMode
+        ? Cesium.Color.TRANSPARENT
+        : bucket
+          ? layerState._activeBucketColors[bucket]
+          : Cesium.Color.WHITE.withAlpha(0.85);
+      if (dot.billboard)
+        dot.billboard.color = bucket
+          ? layerState._activeBucketColors[bucket].withAlpha(1)
+          : Cesium.Color.WHITE;
       dot.nominalSize =
         parts.style.baseDotSize(dot.road?.type, bucket) +
         (bucket === 'jam' ? 1 : 0) +
@@ -394,7 +402,7 @@ export function createModel({ state: layerState, services, parts, source }) {
       // Late flow tags/untags stop-and-go creep + city-scale prominence the
       // same way it rescales speed. Queue *positions* wait for the next
       // natural re-render, like density bunching.
-      if (bucket === 'jam' && parts.style.jamDensityOn()) {
+      if (!layerState._liveMode && bucket === 'jam' && parts.style.jamDensityOn()) {
         if (!dot.creep)
           dot.creep = {
             moving: Math.random() < 0.4,

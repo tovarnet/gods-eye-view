@@ -103,12 +103,21 @@ export function createStyle({ state: layerState, services, parts, source }) {
     for (const dot of layerState._dots) {
       const bucket = dot.bucket;
       if (!bucket) continue; // sim/uncovered dots stay byte-identical
-      dot.point.color = layerState._activeBucketColors[bucket];
-      dot.nominalSize = dot.point.pixelSize =
+      dot.point.color = layerState._liveMode
+        ? Cesium.Color.TRANSPARENT
+        : layerState._activeBucketColors[bucket];
+      if (dot.billboard)
+        dot.billboard.color =
+          layerState._activeBucketColors[bucket].withAlpha(1);
+      dot.nominalSize = layerState._liveMode
+        ? baseDotSize(dot.road?.type, bucket) +
+          (bucket === 'jam' ? 1 : 0) +
+          activeSizeDelta(bucket)
+        : (dot.point.pixelSize =
         baseDotSize(dot.road?.type, bucket) +
         (bucket === 'jam' ? 1 : 0) +
-        activeSizeDelta(bucket);
-      applyOutline(dot.point, bucket);
+        activeSizeDelta(bucket));
+      if (!layerState._liveMode) applyOutline(dot.point, bucket);
     }
     parts.rendering.rebuildHeatLines(
       parts.rendering.visibleRoadsForAltitude(
