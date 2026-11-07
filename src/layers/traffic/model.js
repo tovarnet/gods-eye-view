@@ -55,6 +55,7 @@ export function createModel({ state: layerState, services, parts, source }) {
             coords,
             type,
             oneway: direction,
+            bidirectional: !oneway,
             waypoints,
             segmentDist,
             flow: road.flow || null,

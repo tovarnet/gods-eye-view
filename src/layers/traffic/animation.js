@@ -60,9 +60,28 @@ export function createAnimation({
     const pa = Cesium.SceneTransforms.worldToWindowCoordinates(scene, a);
     const pb = Cesium.SceneTransforms.worldToWindowCoordinates(scene, b);
     if (!pa || !pb) return;
-    let angle = -Math.atan2(pb.y - pa.y, pb.x - pa.x);
-    if (dot.direction < 0) angle += Math.PI;
-    dot.billboard.rotation = angle;
+
+    let dx = pb.x - pa.x;
+    let dy = pb.y - pa.y;
+    if (dot.direction < 0) {
+      dx = -dx;
+      dy = -dy;
+    }
+    const len = Math.hypot(dx, dy) || 1;
+    dot.billboard.rotation = -Math.atan2(dy, dx);
+
+    // Two-way roads share one centerline in the source. Push each direction
+    // onto its own visual lane so opposing cars pass beside each other rather
+    // than through one another. One-sided TomTom lines are already separated.
+    if (dot.road?.bidirectional) {
+      const lanePx = 5.5;
+      dot.billboard.pixelOffset = new Cesium.Cartesian2(
+        (-dy / len) * lanePx,
+        (dx / len) * lanePx,
+      );
+    } else {
+      dot.billboard.pixelOffset = Cesium.Cartesian2.ZERO;
+    }
   }
   function syncRenderDemand() {
     const needed = Boolean(
@@ -273,6 +292,7 @@ export function createAnimation({
         retiring: 0,
         nominalSize: pixelSize,
         recycle: false,
+        respawnAt: 0,
         point,
         billboard,
         road,
@@ -330,14 +350,22 @@ export function createAnimation({
     for (let i = 0; i < layerState._dots.length; i++) {
       const dot = layerState._dots[i];
       if (dot.recycle) {
-        // A road-end departure is a new simulated vehicle at the entry, never
-        // a teleport attributed to the departed vehicle's stable identity.
+        // A flow marker that exits a TomTom segment stays gone briefly before a
+        // new representative car enters at that segment's upstream edge. This
+        // removes the visible endpoint-to-start teleport / "U-turn" effect.
+        if (layerState._liveMode && now < dot.respawnAt) {
+          dot.point.pixelSize = 0;
+          if (dot.billboard) dot.billboard.scale = 0;
+          continue;
+        }
         dot.id = layerState._nextDotId++;
         dot.segIdx = dot.direction > 0 ? 0 : dot.numSegments - 1;
         dot.t = dot.direction > 0 ? 0 : 1;
         dot.born = now;
+        dot.respawnAt = 0;
         dot.recycle = false;
         layerState._motion.recycled++;
+        billboardRotation(dot);
       }
       const remaining =
         dot.direction > 0
@@ -393,6 +421,11 @@ export function createAnimation({
           dot.point.pixelSize = 0;
           if (dot.billboard) dot.billboard.scale = 0;
           dot.recycle = true;
+          // Deterministic 0.9–2.0 s entry gap: enough to read as a car leaving
+          // one monitored segment and another entering later, never teleporting.
+          dot.respawnAt = layerState._liveMode
+            ? now + 900 + ((dot.id * 137) % 1100)
+            : now;
           break;
         }
         dot.segIdx = next;
