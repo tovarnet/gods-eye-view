@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { MAX_DOTS, roadDotBudget } from './policy.js';
+import { flowBucket } from '../../data/trafficFlowStyle.js';
 
 export const DOT_CHANGE_BUDGET = 768;
 export const DOT_FADE_MS = 180;
@@ -118,6 +119,18 @@ export function createRetention({ state, parts }) {
   function refreshCounts() {
     const counts = state._bucketCounts;
     counts.free = counts.slow = counts.jam = counts.sim = 0;
+    if (state._liveMode) {
+      let observed = 0;
+      for (const road of state._roads) {
+        const flow = road?.flow;
+        if (!flow) continue;
+        observed += 1;
+        if (!flow.closure) counts[flowBucket(flow.level)] += 1;
+      }
+      state._count = observed;
+      parts.animation.syncRenderDemand?.();
+      return;
+    }
     let count = 0;
     for (const dot of state._dots) {
       if (!dot.point.show) continue;

@@ -3,9 +3,13 @@ import { flowBucket } from '../../data/trafficFlowStyle.js';
 import { trafficStyleProfile } from '../../data/trafficPresetStyle.js';
 import {
   HEAT_LINE_CAP,
+  HEAT_FREE_COLOR,
   HEAT_JAM_COLOR,
   HEAT_SLOW_COLOR,
+  HEAT_CLOSURE_COLOR,
+  HEAT_LINE_FREE_WIDTH,
   HEAT_LINE_JAM_WIDTH,
+  HEAT_LINE_CLOSURE_WIDTH,
   HEAT_JAM_BASE_ALPHA,
   HEAT_LINE_SLOW_WIDTH,
   TRAFFIC_TIMING_ENABLED,
@@ -37,6 +41,10 @@ export function createRendering({
   /** Remove both heat-line ground primitives from the scene. */
 
   function removeHeatLines() {
+    if (layerState._heatFreePrim) {
+      layerState._viewer?.scene.groundPrimitives.remove(layerState._heatFreePrim);
+      layerState._heatFreePrim = null;
+    }
     if (layerState._heatJamPrim) {
       layerState._viewer?.scene.groundPrimitives.remove(
         layerState._heatJamPrim,
@@ -44,10 +52,12 @@ export function createRendering({
       layerState._heatJamPrim = null;
     }
     if (layerState._heatSlowPrim) {
-      layerState._viewer?.scene.groundPrimitives.remove(
-        layerState._heatSlowPrim,
-      );
+      layerState._viewer?.scene.groundPrimitives.remove(layerState._heatSlowPrim);
       layerState._heatSlowPrim = null;
+    }
+    if (layerState._heatClosurePrim) {
+      layerState._viewer?.scene.groundPrimitives.remove(layerState._heatClosurePrim);
+      layerState._heatClosurePrim = null;
     }
     layerState._heatLineCount = 0;
     parts.animation.syncRenderDemand?.();
@@ -67,12 +77,7 @@ export function createRendering({
 
   function rebuildHeatLines(roads) {
     removeHeatLines();
-    if (
-      !layerState._viewer ||
-      !layerState._liveMode ||
-      !parts.style.heatlineOn()
-    )
-      return;
+    if (!layerState._viewer || !layerState._liveMode) return;
     if (layerState._heatSupported === null) {
       layerState._heatSupported = Cesium.GroundPolylinePrimitive.isSupported(
         layerState._viewer.scene,
@@ -87,15 +92,15 @@ export function createRendering({
     const candidates = [];
     for (const road of roads) {
       const flow = road.flow;
-      if (!flow || flow.closure) continue;
-      const bucket = flowBucket(flow.level);
-      if (bucket === 'free') continue;
+      if (!flow) continue;
+      const bucket = flow.closure ? 'closure' : flowBucket(flow.level);
       let len = 0;
       for (const d of road.segmentDist) len += d;
       candidates.push({ road, bucket, len });
     }
+    const priority = { closure: 0, jam: 1, slow: 2, free: 3 };
     candidates.sort((a, b) =>
-      a.bucket === b.bucket ? b.len - a.len : a.bucket === 'jam' ? -1 : 1,
+      a.bucket === b.bucket ? b.len - a.len : priority[a.bucket] - priority[b.bucket],
     );
     const kept = candidates.slice(0, HEAT_LINE_CAP);
 
@@ -117,17 +122,34 @@ export function createRendering({
     const monoHeat =
       layerState._presetDots === 'on' &&
       trafficStyleProfile(layerState._stylePreset) === 'mono';
+    const freeLineColor = monoHeat
+      ? new Cesium.Color(0.82, 0.82, 0.82, HEAT_FREE_COLOR.alpha)
+      : HEAT_FREE_COLOR;
     const jamLineColor = monoHeat ? Cesium.Color.WHITE : HEAT_JAM_COLOR;
     const slowLineColor = monoHeat
       ? new Cesium.Color(0.7, 0.7, 0.7, HEAT_SLOW_COLOR.alpha)
       : HEAT_SLOW_COLOR;
+    const closureLineColor = monoHeat ? Cesium.Color.WHITE : HEAT_CLOSURE_COLOR;
+
+    const freeInstances = instancesFor('free', HEAT_LINE_FREE_WIDTH);
+    if (freeInstances.length) {
+      layerState._heatFreePrim = layerState._viewer.scene.groundPrimitives.add(
+        new Cesium.GroundPolylinePrimitive({
+          geometryInstances: freeInstances,
+          classificationType: Cesium.ClassificationType.BOTH,
+          appearance: new Cesium.PolylineMaterialAppearance({
+            material: Cesium.Material.fromType('Color', { color: freeLineColor }),
+          }),
+        }),
+      );
+    }
 
     const jamInstances = instancesFor('jam', HEAT_LINE_JAM_WIDTH);
     if (jamInstances.length) {
       layerState._heatJamPrim = layerState._viewer.scene.groundPrimitives.add(
         new Cesium.GroundPolylinePrimitive({
           geometryInstances: jamInstances,
-          classificationType: Cesium.ClassificationType.CESIUM_3D_TILE,
+          classificationType: Cesium.ClassificationType.BOTH,
           appearance: new Cesium.PolylineMaterialAppearance({
             material: Cesium.Material.fromType('PolylineGlow', {
               color: jamLineColor.withAlpha(HEAT_JAM_BASE_ALPHA),
@@ -142,10 +164,26 @@ export function createRendering({
       layerState._heatSlowPrim = layerState._viewer.scene.groundPrimitives.add(
         new Cesium.GroundPolylinePrimitive({
           geometryInstances: slowInstances,
-          classificationType: Cesium.ClassificationType.CESIUM_3D_TILE,
+          classificationType: Cesium.ClassificationType.BOTH,
           appearance: new Cesium.PolylineMaterialAppearance({
             material: Cesium.Material.fromType('Color', {
               color: slowLineColor,
+            }),
+          }),
+        }),
+      );
+    }
+
+    const closureInstances = instancesFor('closure', HEAT_LINE_CLOSURE_WIDTH);
+    if (closureInstances.length) {
+      layerState._heatClosurePrim = layerState._viewer.scene.groundPrimitives.add(
+        new Cesium.GroundPolylinePrimitive({
+          geometryInstances: closureInstances,
+          classificationType: Cesium.ClassificationType.BOTH,
+          appearance: new Cesium.PolylineMaterialAppearance({
+            material: Cesium.Material.fromType('PolylineGlow', {
+              color: closureLineColor,
+              glowPower: 0.35,
             }),
           }),
         }),
@@ -156,7 +194,7 @@ export function createRendering({
     parts.animation.syncRenderDemand?.();
     if (candidates.length > kept.length) {
       console.log(
-        `[Data:Traffic] Heat-lines capped at ${HEAT_LINE_CAP} (${candidates.length} congested roads in view)`,
+        `[Data:Traffic] Live-flow corridors capped at ${HEAT_LINE_CAP} (${candidates.length} observed segments in view)`,
       );
     }
   }
@@ -232,7 +270,7 @@ export function createRendering({
         })
       : null;
     parts.retention.reconcile(filteredRoads, altitude, replace);
-    if (layerState._dots.length && filteredRoads.some((r) => !r.directFlow))
+    if (filteredRoads.some((r) => !r.directFlow && (!layerState._liveMode || r.flow)))
       services.credits?.showOsmCredit?.(layerState._viewer, 'traffic', {
         openMapTiles: true,
       });

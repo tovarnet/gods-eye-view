@@ -104,7 +104,10 @@ export function createModel({ state: layerState, services, parts, source }) {
    */
 
   function computeDotCount(road, altitude) {
-    // Live flow: closed roads carry zero traffic; congestion packs more dots.
+    // TomTom reports aggregate road flow, not individual vehicles.
+    if (layerState._liveMode) return 0;
+
+    // Simulation fallback only: closed roads carry zero traffic; congestion packs more dots.
     // `road.flow` is only ever set in live mode, so the keyless path is
     // untouched (flow stays undefined → multiplier 1, identical output).
     const flow = layerState._liveMode ? road.flow : null;

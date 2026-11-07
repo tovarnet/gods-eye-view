@@ -110,6 +110,7 @@ export function createLifecycle({
 
       // Enabling is explicit intent, not a camera gesture that needs settling.
       parts.viewport.onCameraChanged({ immediate: true });
+      parts.selection.install(viewer);
 
       // Boot-order guard (field-test round 1: layer sat empty until the user
       // moved): when the persisted layer state re-enables traffic during the
@@ -156,6 +157,7 @@ export function createLifecycle({
       layerState._flowPending = 0;
       layerState._roadError = null;
       parts.animation.clearDots();
+      parts.selection.remove();
       layerState._lastBounds = null;
       layerState._lastViewCenter = null;
       // A stale outage from the last session would misreport a fresh enable —

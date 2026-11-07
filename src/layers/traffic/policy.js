@@ -120,11 +120,15 @@ export const FLOW_BUCKET_COLORS = {
 // ─── Jam-viz prototype (live mode only — see 2026-07-21 design doc) ────────
 /** @const {number} Max congestion heat-line polylines per render (jam first). */
 
-export const HEAT_LINE_CAP = 400;
+export const HEAT_LINE_CAP = 1600;
 
 /** @const {number} Px — glowing jam corridor line width. */
 
+export const HEAT_LINE_FREE_WIDTH = 3;
+
 export const HEAT_LINE_JAM_WIDTH = 9;
+
+export const HEAT_LINE_CLOSURE_WIDTH = 11;
 
 /** @const {number} Px — flat slow corridor line width. */
 
@@ -144,8 +148,14 @@ export const HEAT_JAM_COLOR = Cesium.Color.fromCssColorString('#e05252');
 
 /** @const {Cesium.Color} Slow corridor color (bucket amber, faint + static). */
 
+export const HEAT_FREE_COLOR =
+  Cesium.Color.fromCssColorString('#2ecc71').withAlpha(0.52);
+
 export const HEAT_SLOW_COLOR =
-  Cesium.Color.fromCssColorString('#f0b23e').withAlpha(0.2);
+  Cesium.Color.fromCssColorString('#f0b23e').withAlpha(0.62);
+
+export const HEAT_CLOSURE_COLOR =
+  Cesium.Color.fromCssColorString('#ff2d55').withAlpha(0.95);
 
 /** @const {number} Far-distance scale floor for jam dots (shipped: 0.3). */
 
