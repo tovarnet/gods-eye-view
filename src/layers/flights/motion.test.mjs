@@ -184,38 +184,72 @@ test('tracked callers still sample a fresh delayed time without a fleet epoch', 
 });
 
 
-test('VERIFIED mode holds observed fixes instead of extrapolating beyond evidence', () => {
+test('VERIFIED replays a known OpenSky segment, and never travels beyond either observed endpoint', (t) => {
   const { flightState, motion } = fixture();
   flightState._verifiedPositionsOnly = true;
-  const start = Cesium.JulianDate.fromIso8601('2026-11-07T12:00:00Z');
-  const end = Cesium.JulianDate.addSeconds(start, 30, new Cesium.JulianDate());
+  const sourceStartMs = Date.parse('2026-11-07T12:00:00Z');
+  const sourceEndMs = sourceStartMs + 30_000;
+  const receiptEndMs = sourceEndMs + 15_000;
+  let clockMs = receiptEndMs;
+  t.mock.method(Date, 'now', () => clockMs);
+
   const first = {
-    time: start,
-    epochMs: Date.parse('2026-11-07T12:00:00Z'),
+    time: Cesium.JulianDate.fromDate(new Date(sourceStartMs)),
+    epochMs: sourceStartMs,
+    receivedMs: receiptEndMs - 20_000,
     position: Cesium.Cartesian3.fromDegrees(-97, 30, 1000),
     velocity: 150,
     track: 90,
   };
   const newest = {
-    time: end,
-    epochMs: Date.parse('2026-11-07T12:00:30Z'),
+    time: Cesium.JulianDate.fromDate(new Date(sourceEndMs)),
+    epochMs: sourceEndMs,
+    receivedMs: receiptEndMs,
     position: Cesium.Cartesian3.fromDegrees(-96.98, 30, 1000),
     velocity: 150,
     track: 90,
   };
-  flightState.records.data.set('verified', { velocity: 150, true_track: 90 });
-  flightState._positionHistory.set('verified', [first, newest]);
+  flightState.records.data.set('fleet-a', { velocity: 150, true_track: 90 });
+  flightState.records.data.set('fleet-b', { velocity: 150, true_track: 90 });
+  flightState._positionHistory.set('fleet-a', [first, newest]);
+  flightState._positionHistory.set('fleet-b', [first, newest]);
 
-  const afterNewest = Cesium.JulianDate.addSeconds(end, 20, new Cesium.JulianDate());
-  close(motion._deadReckon('verified', new Cesium.Cartesian3(), afterNewest), newest.position);
+  const anyRenderTime = Cesium.JulianDate.fromIso8601('2026-11-07T08:00:00Z');
+  for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+    clockMs = receiptEndMs + fraction * 20_000;
+    const expected = Cesium.Cartesian3.lerp(
+      first.position, newest.position, fraction, new Cesium.Cartesian3(),
+    );
+    for (const id of ['fleet-a', 'fleet-b']) {
+      const actual = motion._deadReckon(id, new Cesium.Cartesian3(), anyRenderTime);
+      close(actual, expected);
+      assert.equal(flightState._drExtrapolating, false);
+    }
+    assert.equal(flightState._drProvenance,
+      fraction === 1 ? 'observed-hold' : 'observed-interpolated');
+  }
+
+  // A stale feed cannot make an aircraft fly beyond its last observed fix.
+  clockMs = receiptEndMs + 90_000;
+  close(motion._deadReckon('fleet-a', new Cesium.Cartesian3()), newest.position);
   assert.equal(flightState._drProvenance, 'observed-hold');
   assert.equal(flightState._drExtrapolating, false);
+});
 
-  const beforeOldest = Cesium.JulianDate.addSeconds(start, -20, new Cesium.JulianDate());
-  close(motion._deadReckon('verified', new Cesium.Cartesian3(), beforeOldest), first.position);
+test('VERIFIED holds a single observed fix without inventing a previous one', () => {
+  const { flightState, motion } = fixture();
+  flightState._verifiedPositionsOnly = true;
+  const fix = {
+    time: Cesium.JulianDate.fromIso8601('2026-11-07T12:00:00Z'),
+    epochMs: Date.parse('2026-11-07T12:00:00Z'),
+    receivedMs: Date.parse('2026-11-07T12:00:08Z'),
+    position: Cesium.Cartesian3.fromDegrees(-99, 19, 9700),
+    velocity: 230,
+    track: 145,
+  };
+  flightState.records.data.set('solo', { velocity: 230, true_track: 145 });
+  flightState._positionHistory.set('solo', [fix]);
+  close(motion._deadReckon('solo', new Cesium.Cartesian3()), fix.position);
   assert.equal(flightState._drProvenance, 'observed-hold');
-
-  const between = Cesium.JulianDate.addSeconds(start, 15, new Cesium.JulianDate());
-  motion._deadReckon('verified', new Cesium.Cartesian3(), between);
-  assert.equal(flightState._drProvenance, 'interpolated');
+  assert.equal(flightState._drExtrapolating, false);
 });
