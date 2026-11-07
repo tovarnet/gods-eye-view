@@ -50,28 +50,91 @@ function flightPriority(record, trackedId) {
 
 const GLOBAL_GRID_DEG = 10;
 const GLOBAL_MEXICO_RESERVE = 140;
-const MEXICO_CONTEXT_MAX = 220;
+const MEXICO_CONTEXT_MAX = 100;
 
-function inMexicoRegion(record) {
+// Coarse operational footprint of Mexico used only for display admission.
+// Separate polygons avoid the old rectangular mask that accidentally admitted
+// Texas/Arizona/Florida as "Mexico". Coordinates are [longitude, latitude].
+const MEXICO_MAINLAND_POLYGON = Object.freeze([
+  [-114.72, 32.72],
+  [-111.08, 31.33],
+  [-109.05, 31.33],
+  [-108.21, 31.78],
+  [-106.53, 31.78],
+  [-105.0, 30.7],
+  [-103.0, 29.2],
+  [-101.0, 29.0],
+  [-100.0, 28.3],
+  [-99.5, 27.6],
+  [-99.0, 26.4],
+  [-97.15, 25.96],
+  [-97.0, 22.3],
+  [-96.1, 19.2],
+  [-94.5, 18.2],
+  [-91.5, 18.7],
+  [-90.5, 21.6],
+  [-86.7, 21.6],
+  [-87.5, 18.3],
+  [-89.1, 17.8],
+  [-91.4, 17.2],
+  [-92.2, 14.55],
+  [-94.0, 15.8],
+  [-96.8, 15.7],
+  [-99.8, 16.8],
+  [-103.7, 18.7],
+  [-105.7, 20.4],
+  [-106.5, 23.0],
+  [-109.0, 25.5],
+  [-110.7, 27.5],
+  [-112.0, 29.5],
+  [-114.8, 31.8],
+  [-114.72, 32.72],
+]);
+
+const MEXICO_BAJA_POLYGON = Object.freeze([
+  [-117.13, 32.54],
+  [-114.72, 32.72],
+  [-114.5, 30.0],
+  [-112.3, 28.0],
+  [-111.0, 24.5],
+  [-109.9, 22.9],
+  [-110.1, 22.8],
+  [-112.5, 24.5],
+  [-114.6, 27.0],
+  [-115.8, 29.5],
+  [-117.13, 32.54],
+]);
+
+function pointInPolygon(longitude, latitude, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const crosses =
+      yi > latitude !== yj > latitude &&
+      longitude <
+        ((xj - xi) * (latitude - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function pointIsInMexico(longitude, latitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  if (latitude < 14 || latitude > 33 || longitude < -118 || longitude > -86)
+    return false;
   return (
-    Number.isFinite(record?.latitude) &&
-    Number.isFinite(record?.longitude) &&
-    record.latitude >= 14 &&
-    record.latitude <= 33.5 &&
-    record.longitude >= -119.5 &&
-    record.longitude <= -86
+    pointInPolygon(longitude, latitude, MEXICO_MAINLAND_POLYGON) ||
+    pointInPolygon(longitude, latitude, MEXICO_BAJA_POLYGON)
   );
 }
 
+function inMexicoRegion(record) {
+  return pointIsInMexico(record?.longitude, record?.latitude);
+}
+
 function pointIsInMexicoFocus(latitude, longitude) {
-  return (
-    Number.isFinite(latitude) &&
-    Number.isFinite(longitude) &&
-    latitude >= 14 &&
-    latitude <= 33.5 &&
-    longitude >= -119.5 &&
-    longitude <= -86
-  );
+  return pointIsInMexico(longitude, latitude);
 }
 
 function mexicoFocusedFlights(records, candidates, trackedId) {
