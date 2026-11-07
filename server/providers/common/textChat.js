@@ -56,6 +56,7 @@ export function createTextChatHandler({
   resolveApiKey,
   resolveHost = () => process.env.HOST,
   resolveAllowedHosts = () => process.env.GEV_ALLOWED_HOSTS,
+  resolveTrustReverseProxy = () => process.env.GEV_TRUST_REVERSE_PROXY,
   resolveRateLimit = () =>
     process.env[`GEV_RATELIMIT_${provider.toUpperCase()}_CHAT_PER_MIN`],
   // An unset chat throttle follows the provider's own cost throttle.
@@ -101,7 +102,12 @@ export function createTextChatHandler({
     let usage = null;
     try {
       if (
-        !isGeminiRequestOriginAllowed(req, resolveHost(), resolveAllowedHosts())
+        !isGeminiRequestOriginAllowed(
+          req,
+          resolveHost(),
+          resolveAllowedHosts(),
+          resolveTrustReverseProxy(),
+        )
       )
         return reply(403, FAILURE);
       const refusal = refuse();

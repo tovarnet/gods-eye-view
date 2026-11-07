@@ -10,9 +10,21 @@ export function isGeminiRequestOriginAllowed(
   req,
   configuredHost = '',
   configuredAllowedHosts,
+  trustReverseProxy = process.env.GEV_TRUST_REVERSE_PROXY,
 ) {
-  const host = req.headers?.host;
+  const directHost = req.headers?.host;
   const origin = req.headers?.origin;
+  const allowProxy = ['1', 'true', 'yes'].includes(
+    String(trustReverseProxy || '').trim().toLowerCase(),
+  );
+  const forwardedHost = String(req.headers?.['x-forwarded-host'] || '').trim();
+  const host =
+    allowProxy &&
+    forwardedHost &&
+    !forwardedHost.includes(',') &&
+    !/[\s/?#@\\]/.test(forwardedHost)
+      ? forwardedHost
+      : directHost;
   if (
     typeof host !== 'string' ||
     typeof origin !== 'string' ||
@@ -21,7 +33,15 @@ export function isGeminiRequestOriginAllowed(
     /[\s/?#@\\]/.test(host)
   )
     return false;
-  const protocol = req.socket?.encrypted ? 'https:' : 'http:';
+  const forwardedProto = String(req.headers?.['x-forwarded-proto'] || '')
+    .trim()
+    .toLowerCase();
+  const protocol =
+    allowProxy && (forwardedProto === 'https' || forwardedProto === 'http')
+      ? `${forwardedProto}:`
+      : req.socket?.encrypted
+        ? 'https:'
+        : 'http:';
   if (
     !admitSameSiteRequest({
       hostHeader: host,
@@ -29,11 +49,13 @@ export function isGeminiRequestOriginAllowed(
       origin,
       secFetchSite: req.headers?.['sec-fetch-site'],
       proxyHeaders: req.headers || {},
+      allowProxy,
     }).ok
   )
     return false;
-  // The shared gate compares a present Origin exactly with this authority;
-  // this route also requires the Origin and an allowed Host.
+  // The shared gate compares a present Origin exactly with the public
+  // authority. In trusted-proxy mode the allowed-host check must use that same
+  // forwarded public Host rather than the container's internal Host.
   const boundHost = String(configuredHost || '')
     .trim()
     .toLowerCase();
