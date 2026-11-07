@@ -15,6 +15,322 @@ import { normalizeVesselTrack, vesselSnapshot } from './vessels.js';
 const defaultFetch = (...args) => globalThis.fetch(...args);
 const header = (response, name) => response.headers?.get?.(name);
 
+function greatCircleKm(lat1, lon1, lat2, lon2) {
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) *
+      Math.cos(lat2 * toRad) *
+      Math.sin(dLon / 2) ** 2;
+  return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function stableFlightRank(id) {
+  let hash = 2166136261;
+  for (const char of String(id || '')) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function flightPriority(record, trackedId) {
+  if (trackedId && record.id === trackedId) return 0;
+  if (
+    record.emergency ||
+    record.squawk === '7500' ||
+    record.squawk === '7600' ||
+    record.squawk === '7700'
+  )
+    return 1;
+  return 2;
+}
+
+const GLOBAL_GRID_DEG = 10;
+const GLOBAL_MEXICO_RESERVE = 140;
+const MEXICO_CONTEXT_MAX = 100;
+
+// Coarse operational footprint of Mexico used only for display admission.
+// Separate polygons avoid the old rectangular mask that accidentally admitted
+// Texas/Arizona/Florida as "Mexico". Coordinates are [longitude, latitude].
+const MEXICO_MAINLAND_POLYGON = Object.freeze([
+  [-114.72, 32.72],
+  [-111.08, 31.33],
+  [-109.05, 31.33],
+  [-108.21, 31.78],
+  [-106.53, 31.78],
+  [-105.0, 30.7],
+  [-103.0, 29.2],
+  [-101.0, 29.0],
+  [-100.0, 28.3],
+  [-99.5, 27.6],
+  [-99.0, 26.4],
+  [-97.15, 25.96],
+  [-97.0, 22.3],
+  [-96.1, 19.2],
+  [-94.5, 18.2],
+  [-91.5, 18.7],
+  [-90.5, 21.6],
+  [-86.7, 21.6],
+  [-87.5, 18.3],
+  [-89.1, 17.8],
+  [-91.4, 17.2],
+  [-92.2, 14.55],
+  [-94.0, 15.8],
+  [-96.8, 15.7],
+  [-99.8, 16.8],
+  [-103.7, 18.7],
+  [-105.7, 20.4],
+  [-106.5, 23.0],
+  [-109.0, 25.5],
+  [-110.7, 27.5],
+  [-112.0, 29.5],
+  [-114.8, 31.8],
+  [-114.72, 32.72],
+]);
+
+const MEXICO_BAJA_POLYGON = Object.freeze([
+  [-117.13, 32.54],
+  [-114.72, 32.72],
+  [-114.5, 30.0],
+  [-112.3, 28.0],
+  [-111.0, 24.5],
+  [-109.9, 22.9],
+  [-110.1, 22.8],
+  [-112.5, 24.5],
+  [-114.6, 27.0],
+  [-115.8, 29.5],
+  [-117.13, 32.54],
+]);
+
+function pointInPolygon(longitude, latitude, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const crosses =
+      yi > latitude !== yj > latitude &&
+      longitude <
+        ((xj - xi) * (latitude - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function pointIsInMexico(longitude, latitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  if (latitude < 14 || latitude > 33 || longitude < -118 || longitude > -86)
+    return false;
+  return (
+    pointInPolygon(longitude, latitude, MEXICO_MAINLAND_POLYGON) ||
+    pointInPolygon(longitude, latitude, MEXICO_BAJA_POLYGON)
+  );
+}
+
+function inMexicoRegion(record) {
+  return pointIsInMexico(record?.longitude, record?.latitude);
+}
+
+function pointIsInMexicoFocus(latitude, longitude) {
+  return pointIsInMexico(longitude, latitude);
+}
+
+function mexicoFocusedFlights(records, candidates, trackedId) {
+  const selected = [];
+  const selectedIds = new Set();
+  const add = (record) => {
+    if (!record?.id || selectedIds.has(record.id)) return false;
+    selected.push(record);
+    selectedIds.add(record.id);
+    return true;
+  };
+
+  // Mexico view is intentionally lossless for verified Mexican contacts:
+  // every fresh observed position OpenSky supplied inside the Mexico region
+  // is rendered. We only thin the surrounding regional context.
+  for (const record of records || []) {
+    if (inMexicoRegion(record)) add(record);
+  }
+
+  // Tracked/emergency contacts outside Mexico remain visible.
+  for (const item of candidates) {
+    if (flightPriority(item.record, trackedId) <= 1) add(item.record);
+  }
+
+  const context = candidates
+    .filter(({ record }) => !inMexicoRegion(record) && !selectedIds.has(record.id))
+    .sort((a, b) => {
+      const priority =
+        flightPriority(a.record, trackedId) -
+        flightPriority(b.record, trackedId);
+      if (priority) return priority;
+      return a.distanceKm - b.distanceKm;
+    });
+
+  for (const { record } of context.slice(0, MEXICO_CONTEXT_MAX)) add(record);
+  return selected;
+}
+
+function globallyDistributedFlights(records, maxRows, trackedId) {
+  if (!Array.isArray(records) || records.length <= maxRows) return records || [];
+
+  const selected = [];
+  const selectedIds = new Set();
+  const add = (record) => {
+    if (!record?.id || selectedIds.has(record.id) || selected.length >= maxRows)
+      return false;
+    selected.push(record);
+    selectedIds.add(record.id);
+    return true;
+  };
+
+  // Never lose an actively tracked or emergency contact.
+  for (const record of records) {
+    if (flightPriority(record, trackedId) <= 1) add(record);
+  }
+
+  // Mexico is the operator's primary region. Reserve enough global slots for
+  // its observed contacts so zooming to the globe never makes Mexico vanish.
+  const mexico = records
+    .filter((record) => inMexicoRegion(record) && !selectedIds.has(record.id))
+    .sort((a, b) => stableFlightRank(a.id) - stableFlightRank(b.id));
+  for (const record of mexico.slice(0, GLOBAL_MEXICO_RESERVE)) add(record);
+
+  const buckets = new Map();
+  for (const record of records) {
+    if (
+      selectedIds.has(record.id) ||
+      !Number.isFinite(record.latitude) ||
+      !Number.isFinite(record.longitude)
+    )
+      continue;
+    const y = Math.floor((record.latitude + 90) / GLOBAL_GRID_DEG);
+    const x = Math.floor((record.longitude + 180) / GLOBAL_GRID_DEG);
+    const key = `${y}:${x}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(record);
+  }
+
+  const orderedBuckets = [...buckets.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, rows]) =>
+      rows.sort((a, b) => stableFlightRank(a.id) - stableFlightRank(b.id)),
+    );
+
+  // Round-robin across geographic cells. Busy regions still receive multiple
+  // contacts, but they can no longer consume the whole global budget.
+  let round = 0;
+  while (selected.length < maxRows) {
+    let addedThisRound = 0;
+    for (const bucket of orderedBuckets) {
+      if (round < bucket.length && add(bucket[round])) addedThisRound += 1;
+      if (selected.length >= maxRows) break;
+    }
+    if (!addedThisRound) break;
+    round += 1;
+  }
+
+  return selected;
+}
+
+/**
+ * Scope a real upstream snapshot to the operator's current view. This does not
+ * synthesize, extrapolate or alter positions; it only chooses which observed
+ * contacts are useful to render at the current zoom.
+ */
+export function scopeFlightSnapshot(snapshot, query = {}) {
+  const latitude = Number(query.latitude);
+  const longitude = Number(query.longitude);
+  const radiusKm = Number(query.radiusKm);
+  const maxRows = Math.max(1, Math.floor(Number(query.maxRows)));
+  if (!Number.isFinite(maxRows)) return snapshot;
+
+  const trackedId = String(query.trackedId || '').trim().toLowerCase();
+  const baseCoverage = String(snapshot.coverage || '').trim();
+
+  if (query.globalView === true) {
+    const candidates = snapshot.records || [];
+    const records = globallyDistributedFlights(candidates, maxRows, trackedId);
+    const viewCoverage = `global distributed · ${records.length}/${candidates.length} shown · Mexico priority`;
+    return {
+      ...snapshot,
+      records,
+      retainIds: new Set(),
+      complete: true,
+      viewportScoped: true,
+      totalViewCandidates: candidates.length,
+      coverage: baseCoverage ? `${baseCoverage}; ${viewCoverage}` : viewCoverage,
+    };
+  }
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    !Number.isFinite(radiusKm) ||
+    radiusKm <= 0
+  )
+    return snapshot;
+
+  const candidates = [];
+  for (const record of snapshot.records || []) {
+    if (
+      !Number.isFinite(record.latitude) ||
+      !Number.isFinite(record.longitude)
+    )
+      continue;
+    const distanceKm = greatCircleKm(
+      latitude,
+      longitude,
+      record.latitude,
+      record.longitude,
+    );
+    if (record.id === trackedId || distanceKm <= radiusKm) {
+      candidates.push({ record, distanceKm });
+    }
+  }
+
+  const mexicoFocus = pointIsInMexicoFocus(latitude, longitude);
+  let records;
+  if (mexicoFocus) {
+    records = mexicoFocusedFlights(snapshot.records || [], candidates, trackedId);
+  } else {
+    let selected = candidates;
+    if (candidates.length > maxRows) {
+      selected = [...candidates]
+        .sort((a, b) => {
+          const priority =
+            flightPriority(a.record, trackedId) -
+            flightPriority(b.record, trackedId);
+          if (priority) return priority;
+          const rank =
+            stableFlightRank(a.record.id) - stableFlightRank(b.record.id);
+          if (rank) return rank;
+          return a.distanceKm - b.distanceKm;
+        })
+        .slice(0, maxRows);
+    }
+    records = selected.map(({ record }) => record);
+  }
+
+  const mexicoCount = mexicoFocus
+    ? records.filter((record) => inMexicoRegion(record)).length
+    : 0;
+  const viewCoverage = mexicoFocus
+    ? `Mexico full verified · ${mexicoCount} Mexico + ${records.length - mexicoCount} context`
+    : `view ${Math.round(radiusKm)} km · ${records.length}/${candidates.length} shown`;
+  return {
+    ...snapshot,
+    records,
+    retainIds: new Set(),
+    complete: true,
+    viewportScoped: true,
+    totalViewCandidates: candidates.length,
+    coverage: baseCoverage ? `${baseCoverage}; ${viewCoverage}` : viewCoverage,
+  };
+}
+
 function openSkyError(response) {
   const error = httpError(response, 'Flights');
   const mode = String(
@@ -71,6 +387,11 @@ export function createFlightSource({
         params.set('lat', query.latitude.toFixed(4));
         params.set('lon', query.longitude.toFixed(4));
       }
+      if (Number.isFinite(query.radiusKm))
+        params.set('radius_km', query.radiusKm.toFixed(1));
+      if (Number.isFinite(query.maxRows))
+        params.set('maxRows', String(Math.floor(query.maxRows)));
+      if (query.globalView === true) params.set('global', '1');
       const { response, payload } = await readResponse(
         fetchImpl,
         `/api/flights${params.size ? '?' + params : ''}`,
@@ -78,17 +399,18 @@ export function createFlightSource({
         'Flights',
       );
       if (!response.ok) throw openSkyError(response);
+      const snapshot = openSkySnapshot(payload, {
+        // A fallback provider names itself in X-Flight-Source.
+        source:
+          header(response, 'x-flight-source') ||
+          feedSource(response, 'Flights'),
+        coverage:
+          header(response, 'x-flight-coverage') ||
+          'worldwide upstream snapshot',
+        now: now(),
+      });
       return {
-        ...openSkySnapshot(payload, {
-          // A fallback provider names itself in X-Flight-Source.
-          source:
-            header(response, 'x-flight-source') ||
-            feedSource(response, 'Flights'),
-          coverage:
-            header(response, 'x-flight-coverage') ||
-            'worldwide upstream snapshot',
-          now: now(),
-        }),
+        ...scopeFlightSnapshot(snapshot, query),
         status: response.status,
       };
     },

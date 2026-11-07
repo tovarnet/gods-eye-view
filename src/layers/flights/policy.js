@@ -147,6 +147,14 @@ export const TRAIL_MAX_POINTS = 400;
 
 export const RENDER_DELAY_SEC = 30;
 
+/**
+ * VERIFIED mode: never present an aircraft position older than this as current.
+ * OpenSky distinguishes position time from last contact; a transponder can keep
+ * talking after its last usable position. Those contacts stay off the map until
+ * a fresh position arrives instead of being projected into a phantom track.
+ */
+export const VERIFIED_POSITION_MAX_AGE_MS = 60_000;
+
 /** @constant {number} Polls an aircraft may miss before removal (transient OpenSky dropouts). */
 
 // --- Landed-plane fast cull (owner field report 2026-07-02: "phantom" planes

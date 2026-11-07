@@ -178,9 +178,11 @@ export function createControls({ state: layerState, services, parts, source }) {
           : t(
               'TomTom roads only, each with its live flow (needs a TomTom key)',
             ),
-        osm: t('OpenStreetMap roads, with TomTom flow matched when available'),
+        osm: live
+          ? t('OpenStreetMap roads with matched TomTom flow; unmatched roads hidden')
+          : t('OpenStreetMap roads, simulated without TomTom'),
         hybrid: live
-          ? t('TomTom roads first; OpenStreetMap fills the rest, simulated')
+          ? t('TomTom flow first; roads without verified flow stay hidden')
           : t(
               'TomTom roads first; OpenStreetMap fills the rest, simulated (needs a TomTom key)',
             ),
@@ -188,6 +190,9 @@ export function createControls({ state: layerState, services, parts, source }) {
       // TomTom and OSM are provider names and stay as they are.
       const labels = { tomtom: 'TomTom', osm: 'OSM', hybrid: t('Hybrid') };
       return {
+        info: live
+          ? t('Flujo real TomTom; no se infieren vehículos individuales.')
+          : t('SIMULATED fallback; no live TomTom flow is available.'),
         chips: TRAFFIC_ROAD_MODES.map((mode) => ({
           id: `roads-${mode}`,
           label: labels[mode],
@@ -211,7 +216,8 @@ export function createControls({ state: layerState, services, parts, source }) {
      * @returns {Array<{position:Cesium.Cartesian3, id:string, type:string}>}
      */
     getDetectableObjects(options = {}) {
-      if (!layerState._enabled || layerState._dots.length === 0) return [];
+      if (layerState._liveMode || !layerState._enabled || layerState._dots.length === 0)
+        return [];
       const maxCount = Number.isFinite(options.maxCount)
         ? Math.max(1, Math.floor(options.maxCount))
         : layerState._dots.length;
@@ -246,6 +252,7 @@ export function createControls({ state: layerState, services, parts, source }) {
 
     /** Visit stable dot identities and their owning geometry without allocating snapshots. */
     visitMotionDots(visitor) {
+      if (layerState._liveMode) return;
       for (let i = 0; i < layerState._dots.length; i++) {
         const dot = layerState._dots[i];
         visitor(dot.id, dot.road.key, dot.point, dot.road);
@@ -328,6 +335,7 @@ export function createControls({ state: layerState, services, parts, source }) {
       });
       return {
         count: layerState._count,
+        countLabel: layerState._liveMode ? `${layerState._count} tramos` : null,
         motion: { ...layerState._motion },
         surfaceBudgetOmitted: layerState._surfaceBudgetOmitted || 0,
         lastUpdate: layerState._lastUpdate,

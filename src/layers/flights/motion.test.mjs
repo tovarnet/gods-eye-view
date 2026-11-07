@@ -182,3 +182,40 @@ test('tracked callers still sample a fresh delayed time without a fleet epoch', 
   );
   assert.equal(spy.mock.callCount(), 2);
 });
+
+
+test('VERIFIED mode holds observed fixes instead of extrapolating beyond evidence', () => {
+  const { flightState, motion } = fixture();
+  flightState._verifiedPositionsOnly = true;
+  const start = Cesium.JulianDate.fromIso8601('2026-11-07T12:00:00Z');
+  const end = Cesium.JulianDate.addSeconds(start, 30, new Cesium.JulianDate());
+  const first = {
+    time: start,
+    epochMs: Date.parse('2026-11-07T12:00:00Z'),
+    position: Cesium.Cartesian3.fromDegrees(-97, 30, 1000),
+    velocity: 150,
+    track: 90,
+  };
+  const newest = {
+    time: end,
+    epochMs: Date.parse('2026-11-07T12:00:30Z'),
+    position: Cesium.Cartesian3.fromDegrees(-96.98, 30, 1000),
+    velocity: 150,
+    track: 90,
+  };
+  flightState.records.data.set('verified', { velocity: 150, true_track: 90 });
+  flightState._positionHistory.set('verified', [first, newest]);
+
+  const afterNewest = Cesium.JulianDate.addSeconds(end, 20, new Cesium.JulianDate());
+  close(motion._deadReckon('verified', new Cesium.Cartesian3(), afterNewest), newest.position);
+  assert.equal(flightState._drProvenance, 'observed-hold');
+  assert.equal(flightState._drExtrapolating, false);
+
+  const beforeOldest = Cesium.JulianDate.addSeconds(start, -20, new Cesium.JulianDate());
+  close(motion._deadReckon('verified', new Cesium.Cartesian3(), beforeOldest), first.position);
+  assert.equal(flightState._drProvenance, 'observed-hold');
+
+  const between = Cesium.JulianDate.addSeconds(start, 15, new Cesium.JulianDate());
+  motion._deadReckon('verified', new Cesium.Cartesian3(), between);
+  assert.equal(flightState._drProvenance, 'interpolated');
+});

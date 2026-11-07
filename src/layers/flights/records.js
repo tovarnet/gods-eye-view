@@ -252,6 +252,11 @@ export class FlightRecords {
         prevMeta?.lastContactEpochMs,
         null,
       ),
+      // Exact source timestamp of the latest accepted position. Never replace
+      // an unknown source timestamp with browser receipt time.
+      positionObservedAtMs: Number.isFinite(observation.positionTimeMs)
+        ? observation.positionTimeMs
+        : null,
       // adsbdb enrichment — written by the enrichment callbacks, carried across polls:
       typeCode: prevMeta?.typeCode ?? null,
       typeName: prevMeta?.typeName ?? null,

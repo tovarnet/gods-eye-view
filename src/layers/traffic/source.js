@@ -216,6 +216,22 @@ export function createTrafficSource({
         },
       };
     },
+    async getFlowSegment({ latitude, longitude, zoom = 14 } = {}, { signal } = {}) {
+      if (!Number.isFinite(latitude) || Math.abs(latitude) > 90 || !Number.isFinite(longitude) || Math.abs(longitude) > 180)
+        throw new TypeError('A valid traffic inspection point is required');
+      const params = new URLSearchParams({
+        lat: latitude.toFixed(6),
+        lon: longitude.toFixed(6),
+        zoom: String(Math.max(0, Math.min(22, Math.floor(zoom)))),
+      });
+      const response = await fetchImpl(`/api/tomtom/segment?${params}`, { signal, cache: 'no-store' });
+      if (!response.ok) throw Object.assign(new Error('TomTom flow segment unavailable'), { status: response.status });
+      const data = await response.json();
+      signal?.throwIfAborted();
+      if (!data || !Number.isFinite(data.currentSpeed) || !Number.isFinite(data.freeFlowSpeed))
+        throw new Error('Malformed TomTom flow segment');
+      return data;
+    },
     async getStatus({ signal } = {}) {
       const start = performance.now();
       const timeout = AbortSignal.timeout(8000);

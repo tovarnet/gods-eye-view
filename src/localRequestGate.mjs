@@ -79,7 +79,8 @@ function requestAuthority(hostHeader, protocol) {
  * to admit. Pure: no I/O, no globals.
  *
  * Policy, in order:
- *  1. any reverse-proxy / CDN signal header present (PROXY_SIGNALS) → 403;
+ *  1. any reverse-proxy / CDN signal header present (PROXY_SIGNALS) → 403,
+ *     unless the caller explicitly opts into a trusted reverse proxy;
  *  2. `Sec-Fetch-Site` present and not `same-origin` / `none` → 403 (this is
  *     what blocks `<img src=...>` and cross-site navigation, which carry no
  *     Origin but do carry `Sec-Fetch-Site: cross-site`);
@@ -90,7 +91,7 @@ function requestAuthority(hostHeader, protocol) {
  *  4. otherwise ok. Non-browser loopback tools and the LAN opt-in (which may
  *     carry neither `Origin` nor `Sec-Fetch-Site`) pass here.
  *
- * @param {{hostHeader?: string, protocol?: string, origin?: string, secFetchSite?: string, proxyHeaders?: Record<string,string>}} req
+ * @param {{hostHeader?: string, protocol?: string, origin?: string, secFetchSite?: string, proxyHeaders?: Record<string,string>, allowProxy?: boolean}} req
  * @returns {{ok: true} | {ok: false, status: 403, error: string}}
  */
 export function admitSameSiteRequest({
@@ -99,10 +100,12 @@ export function admitSameSiteRequest({
   origin,
   secFetchSite,
   proxyHeaders = {},
+  allowProxy = false,
 } = {}) {
   // (1) A request carrying reverse-proxy / CDN forwarding headers did not
-  // originate on this machine, whatever its socket says.
-  if (hasProxySignals(proxyHeaders)) {
+  // originate on this machine, whatever its socket says, unless the server
+  // wrapper has explicitly opted into a trusted reverse-proxy deployment.
+  if (!allowProxy && hasProxySignals(proxyHeaders)) {
     return {
       ok: false,
       status: 403,

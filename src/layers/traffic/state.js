@@ -4,14 +4,16 @@ import { FLOW_BUCKET_COLORS } from './policy.js';
 
 export function createState({ services }) {
   const layerState = {};
-  layerState._roadMode =
+  const roadModeOverride =
     typeof location === 'undefined'
       ? null
       : normalizeRoadMode(
           new URLSearchParams(location.search).get('trafficRoads'),
         );
-  // The query override is consumed at construction and shields passive restoration.
-  layerState._roadModeUrlOverride = layerState._roadMode;
+  // Verified default: wait for TomTom and draw its real flow. A missing key
+  // still falls back to OSM after the status probe; it never needs fake cars.
+  layerState._roadMode = roadModeOverride || 'tomtom';
+  layerState._roadModeUrlOverride = roadModeOverride;
 
   // ─── Module State ──────────────────────────────────────────
   /** @type {Cesium.Viewer|null} */
@@ -153,7 +155,7 @@ export function createState({ services }) {
 
   /** @type {'sim'|'hide'} Live-mode treatment of roads without flow data. */
 
-  layerState._uncoveredMode = 'sim';
+  layerState._uncoveredMode = 'hide';
 
   /**
    * Jam-viz prototype mode: 'density' = deep-jam density boost + platoon queues
@@ -165,7 +167,7 @@ export function createState({ services }) {
    * @type {'none'|'density'|'heatline'|'both'}
    */
 
-  layerState._jamViz = 'density';
+  layerState._jamViz = 'heatline';
 
   /**
    * Congestion heat-lines are GroundPolylinePrimitive batches draped onto the
@@ -175,11 +177,13 @@ export function createState({ services }) {
    * @type {Cesium.GroundPolylinePrimitive|null}
    */
 
+  layerState._heatFreePrim = null;
   layerState._heatJamPrim = null;
 
   /** @type {Cesium.GroundPolylinePrimitive|null} Slow-bucket heat-line batch. */
 
   layerState._heatSlowPrim = null;
+  layerState._heatClosurePrim = null;
 
   /** @type {number} Heat-lines in the current render (stats). */
 
@@ -235,6 +239,10 @@ export function createState({ services }) {
   layerState._fadeTransFar = 10000;
 
   /** @type {Promise<void>|null} Session-cached status check (one fetch per session) */
+
+  layerState._trafficSelectionHandler = null;
+  layerState._trafficSelectionAbort = null;
+  layerState._selectedTrafficCardId = null;
 
   layerState._flowStatusPromise = null;
   layerState._flowStatusSignal = null;

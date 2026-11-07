@@ -139,6 +139,44 @@ async function fixture(t, provider, fetchImpl, overrides = {}) {
   };
 }
 for (const [name, provider] of Object.entries(providers)) {
+  test(`${name} text route accepts exact same-origin traffic through an explicitly trusted reverse proxy`, async (t) => {
+    const f = await fixture(t, provider, undefined, {
+      resolveAllowedHosts: () => 'atlas.tovarnet.com.mx',
+      resolveTrustReverseProxy: () => 'true',
+    });
+    const response = await f.raw(
+      {
+        method: 'POST',
+        headers: {
+          Host: 'container.internal:4173',
+          Origin: 'https://atlas.tovarnet.com.mx',
+          'Sec-Fetch-Site': 'same-origin',
+          'X-Forwarded-Host': 'atlas.tovarnet.com.mx',
+          'X-Forwarded-Proto': 'https',
+          'X-Forwarded-For': '203.0.113.10',
+          'Content-Type': 'application/json',
+        },
+      },
+      JSON.stringify(provider.input),
+    );
+    assert.equal(response.status, 200);
+    const cross = await f.raw(
+      {
+        method: 'POST',
+        headers: {
+          Host: 'container.internal:4173',
+          Origin: 'https://evil.example',
+          'Sec-Fetch-Site': 'cross-site',
+          'X-Forwarded-Host': 'atlas.tovarnet.com.mx',
+          'X-Forwarded-Proto': 'https',
+          'X-Forwarded-For': '203.0.113.10',
+          'Content-Type': 'application/json',
+        },
+      },
+      JSON.stringify(provider.input),
+    );
+    assert.equal(cross.status, 403);
+  });
   test(`${name} text route validates calls, retains usage and only accepts paired history`, async (t) => {
     const f = await fixture(t, provider);
     const response = await f.send();

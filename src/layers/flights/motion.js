@@ -4,7 +4,6 @@ import {
   lerpAngleDeg,
   speedRamp,
   courseBetweenCartesians,
-  staleCoastLimitSeconds,
   arcOffsetEnu,
   courseSlewCapDps,
   limitCourseStep,
@@ -137,6 +136,7 @@ export function createMotion({
       flightState._drCourseHold =
         flightState._drSpeedMps < COURSE_HOLD_SPEED_MPS;
       flightState._drExtrapolating = false;
+      flightState._drProvenance = 'evidence';
       return position
         ? Cesium.Cartesian3.clone(position, result || new Cesium.Cartesian3())
         : null;
@@ -147,6 +147,7 @@ export function createMotion({
       flightState._drSpeedMps = null;
       flightState._drCourseHold = false;
       flightState._drExtrapolating = false;
+      flightState._drProvenance = 'unknown';
       return null;
     }
 
@@ -199,6 +200,7 @@ export function createMotion({
         flightState._drSpeedMps = segSpeed;
         flightState._drCourseHold = segSpeed < COURSE_HOLD_SPEED_MPS;
         flightState._drExtrapolating = false;
+        flightState._drProvenance = 'interpolated';
         return Cesium.Cartesian3.lerp(a.position, b.position, t, out);
       }
     }
@@ -209,6 +211,20 @@ export function createMotion({
       newest.time,
     );
     if (elapsedSec <= 0) {
+      if (flightState._verifiedPositionsOnly) {
+        const oldest = history[0];
+        flightState._drCourseDeg = Number.isFinite(oldest.track)
+          ? oldest.track
+          : info?.true_track || 0;
+        flightState._drSpeedMps = Number.isFinite(oldest.velocity)
+          ? oldest.velocity
+          : info?.velocity || 0;
+        flightState._drCourseHold =
+          flightState._drSpeedMps < COURSE_HOLD_SPEED_MPS;
+        flightState._drExtrapolating = false;
+        flightState._drProvenance = 'observed-hold';
+        return Cesium.Cartesian3.clone(oldest.position, out);
+      }
       // Warm-up: renderTime predates ALL history (freshly seen / just-started-tracking
       // aircraft, before RENDER_DELAY_SEC of history has accumulated, so no bracketing
       // pair exists yet). Render at the DELAYED renderTime — preserving the 30s-behind
@@ -231,27 +247,26 @@ export function createMotion({
       );
     }
 
-    // Newest POSITION is older than renderTime. OpenSky can still be receiving
-    // fresh contact/kinematic messages for that aircraft; freezing at a hard
-    // 60 s-after-position boundary produced the visible stop → catch-up → stop
-    // cadence. Coast through the latest real contact plus a bounded grace
-    // window, with an absolute cap so a stale cached feed cannot drift forever.
-    const coastLimitSec = staleCoastLimitSeconds({
-      // `epochMs` is captured once when the poll is normalized. Avoid allocating
-      // a Date per aircraft on every 12 Hz fleet tick.
-      fixEpochMs: Number.isFinite(newest.epochMs)
-        ? newest.epochMs
-        : Cesium.JulianDate.toDate(newest.time).getTime(),
-      lastContactEpochMs: info?.lastContactEpochMs,
-      // Permit one minute of contact grace but cap any cached-feed drift at
-      // five minutes. Source backoff is exposed separately as a STALE cue.
-      minimumSec: 60,
-      maximumSec: 300,
-    });
+    // VERIFIED mode refuses to invent where the aircraft went next:
+    // hold the newest observed fix until another real fix arrives.
+    if (flightState._verifiedPositionsOnly) {
+      flightState._drCourseDeg = Number.isFinite(newest.track)
+        ? newest.track
+        : info?.true_track || 0;
+      flightState._drSpeedMps = Number.isFinite(newest.velocity)
+        ? newest.velocity
+        : info?.velocity || 0;
+      flightState._drCourseHold =
+        flightState._drSpeedMps < COURSE_HOLD_SPEED_MPS;
+      flightState._drExtrapolating = false;
+      flightState._drProvenance = 'observed-hold';
+      return Cesium.Cartesian3.clone(newest.position, out);
+    }
+
     return _extrapolateFix(
       newest,
       info,
-      Math.min(elapsedSec, coastLimitSec),
+      Math.min(elapsedSec, 60),
       out,
       (info && info.turnRateDps) || 0,
     );
@@ -269,6 +284,7 @@ export function createMotion({
    */
 
   function _extrapolateFix(fix, info, dt, out, turnRateDps = 0) {
+    flightState._drProvenance = 'estimated';
     const speed = Number.isFinite(fix.velocity)
       ? fix.velocity
       : (info && info.velocity) || 0;
@@ -1108,10 +1124,30 @@ export function createMotion({
       out.push(cell);
     }
   }
+  function _positionEvidenceMode(icao24, nowMs = Date.now()) {
+    const history = flightState._positionHistory.get(icao24);
+    if (!history?.length) return 'unknown';
+    if (!flightState._verifiedPositionsOnly) return 'estimated-capable';
+    const renderEpochMs = nowMs - RENDER_DELAY_SEC * 1000;
+    if (history.length < 2) return 'observed-hold';
+    for (let i = history.length - 1; i >= 1; i--) {
+      const aMs = Number.isFinite(history[i - 1].epochMs)
+        ? history[i - 1].epochMs
+        : Cesium.JulianDate.toDate(history[i - 1].time).getTime();
+      const bMs = Number.isFinite(history[i].epochMs)
+        ? history[i].epochMs
+        : Cesium.JulianDate.toDate(history[i].time).getTime();
+      if (aMs <= renderEpochMs && renderEpochMs <= bMs)
+        return 'interpolated';
+    }
+    return 'observed-hold';
+  }
+
   return {
     _refloorStaleGroundedContacts,
     _deadReckon,
     _extrapolateFix,
+    _positionEvidenceMode,
     _isTrackWarmingUp,
     _trackedFocusSizePx,
     _trackedDisplayPosition,

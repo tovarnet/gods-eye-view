@@ -59,6 +59,9 @@ export function tomtomProxy() {
   const UPSTREAM_TIMEOUT_MS = 15000;
   /** Flow tiles are well under 1 MB; this bounds a runaway body, not a budget. */
   const TOMTOM_TILE_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+  const TOMTOM_SEGMENT_MAX_RESPONSE_BYTES = 512 * 1024;
+  const SEGMENT_TTL_MS = 30_000;
+  const segmentCache = new Map();
 
   /** @type {Map<string, {at:number, buf:Buffer}>} tile key `z/x/y` -> cached tile (kept past TTL for serve-stale). */
   const mem = new Map();
@@ -209,6 +212,43 @@ export function tomtomProxy() {
             date: b.date,
           });
           return;
+        }
+
+        if (urlPath === '/segment') {
+          if (!process.env.TOMTOM_API_KEY) { sendJson(503, { error: 'no_key' }); return; }
+          if (isTomTomOverBudget(currentBudget(), dailyBudgetLimit())) { sendJson(429, { error: 'budget' }); return; }
+          const requestUrl = new URL(req.url || '/segment', 'http://localhost');
+          const lat = Number(requestUrl.searchParams.get('lat'));
+          const lon = Number(requestUrl.searchParams.get('lon'));
+          const zoom = Number(requestUrl.searchParams.get('zoom') || 14);
+          if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180 || !Number.isInteger(zoom) || zoom < 0 || zoom > 22) {
+            sendJson(400, { error: 'invalid_point' }); return;
+          }
+          const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)},${zoom}`;
+          const cached = segmentCache.get(cacheKey);
+          if (cached && Date.now() - cached.at < SEGMENT_TTL_MS) { sendJson(200, cached.data, { 'x-tomtom-cache': 'HIT' }); return; }
+          recordUpstreamFetch();
+          const upstreamUrl = 'https://api.tomtom.com/traffic/services/4/flowSegmentData/' +
+            `relative/${zoom}/json?key=${encodeURIComponent(process.env.TOMTOM_API_KEY)}&point=${lat.toFixed(6)},${lon.toFixed(6)}&unit=kmph`;
+          const signal = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+          const upstream = await fetch(upstreamUrl, { signal });
+          if (!upstream.ok) { sendJson(upstream.status === 429 ? 429 : 502, { error: upstream.status === 429 ? 'limited' : 'upstream' }); return; }
+          const bytes = await readResponseBytesCapped(upstream, TOMTOM_SEGMENT_MAX_RESPONSE_BYTES, signal);
+          let payload;
+          try { payload = JSON.parse(Buffer.from(bytes).toString('utf8')); }
+          catch { sendJson(502, { error: 'malformed_upstream' }); return; }
+          const flow = payload?.flowSegmentData;
+          const data = {
+            frc: typeof flow?.frc === 'string' ? flow.frc : null,
+            currentSpeed: Number(flow?.currentSpeed), freeFlowSpeed: Number(flow?.freeFlowSpeed),
+            currentTravelTime: Number(flow?.currentTravelTime), freeFlowTravelTime: Number(flow?.freeFlowTravelTime),
+            confidence: Number(flow?.confidence), roadClosure: flow?.roadClosure === true,
+            fetchedAt: Date.now(), source: 'TomTom Traffic',
+          };
+          if (!Number.isFinite(data.currentSpeed) || !Number.isFinite(data.freeFlowSpeed)) { sendJson(502, { error: 'malformed_upstream' }); return; }
+          segmentCache.set(cacheKey, { at: Date.now(), data });
+          if (segmentCache.size > 64) segmentCache.delete(segmentCache.keys().next().value);
+          sendJson(200, data, { 'x-tomtom-cache': 'MISS' }); return;
         }
 
         const m = urlPath.match(/^\/flow\/(\d+)\/(\d+)\/(\d+)\.pbf$/);

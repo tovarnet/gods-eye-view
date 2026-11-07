@@ -7,6 +7,17 @@ import {
 } from '../../data/motionModel.js';
 import { aircraftIcon } from '../../data/aircraftIcons.js';
 import { POSITION_HISTORY_LIMIT } from './recordPolicy.js';
+import { VERIFIED_POSITION_MAX_AGE_MS } from './policy.js';
+
+/** True only when a position has a source timestamp recent enough for VERIFIED mode. */
+export function verifiedPositionIsFresh(
+  observation,
+  nowMs = Date.now(),
+  maxAgeMs = VERIFIED_POSITION_MAX_AGE_MS,
+) {
+  const at = Number(observation?.positionTimeMs);
+  return Number.isFinite(at) && at > 0 && nowMs >= at && nowMs - at <= maxAgeMs;
+}
 
 /** Apply reconciled aircraft records to Cesium resources and follow state. */
 export function createFlightSnapshotRenderer({
@@ -24,6 +35,22 @@ export function createFlightSnapshotRenderer({
   const { refreshMilitaryRegistryIfStale, isMilitaryIcao } = militaryRegistry;
   const { warmGroundFloor } = groundFloor;
   const { sampleMeshFloorCells } = meshFloor;
+
+  function evictContact(icao24) {
+    if (icao24 === flightState._trackedIcao)
+      tracking._clearTracking(false, { evicted: true });
+    const bb = flightState._billboards.get(icao24);
+    if (bb) flightState._billboardCollection.remove(bb);
+    flightState._billboards.delete(icao24);
+    rendering._releaseModel(icao24);
+    records.forget(icao24);
+    flightState._cullPositions.delete(icao24);
+    flightState._positionHistory.delete(icao24);
+    flightState._displayCourse.delete(icao24);
+    flightState._groundSnap.forget(icao24);
+    flightState._displayFloorState.delete(icao24);
+  }
+
   return function applySnapshot(snapshot, viewer) {
     const currentIcaos = new Set();
     const acceptedSnapshotIcaos = new Set();
@@ -39,11 +66,19 @@ export function createFlightSnapshotRenderer({
       ? Cesium.Math.toDegrees(viewerCarto.longitude)
       : null;
     const floorWarmPoints = [];
+    const nowMs = Date.now();
 
     // Classification and display policy consume source-independent observations.
     refreshMilitaryRegistryIfStale();
     for (const observation of snapshot.records) {
       const icao24 = observation.id;
+      if (
+        flightState._verifiedPositionsOnly &&
+        !verifiedPositionIsFresh(observation, nowMs)
+      ) {
+        evictContact(icao24);
+        continue;
+      }
       acceptedSnapshotIcaos.add(icao24);
 
       // Known-military aircraft: the dedicated military layer wins
@@ -241,6 +276,13 @@ export function createFlightSnapshotRenderer({
     // feed gap, and the full grace left phantom planes parked at airports.
     for (const [icao24, bb] of flightState._billboards) {
       if (currentIcaos.has(icao24)) continue;
+      // A viewport-scoped snapshot intentionally excludes off-view / thinned
+      // contacts. Remove them immediately instead of letting three poll cycles
+      // accumulate a ghost swarm from the previous camera position.
+      if (snapshot.viewportScoped) {
+        evictContact(icao24);
+        continue;
+      }
       const absence = records.absence(icao24, {
         complete: snapshot.complete,
         retainIds: snapshot.retainIds,
@@ -258,25 +300,7 @@ export function createFlightSnapshotRenderer({
         continue;
       }
 
-      // If the tracked flight is truly gone, clear tracking BEFORE deleting
-      // its state (M3 ordering, keep it): teardown reads the maps this loop
-      // is about to delete (billboard restore, DR cache reset), and we must
-      // never leave the camera mid-follow with stale tracking state. The
-      // camera is then RELEASED IN PLACE — it stays where the follow left
-      // it, fully free (owner decision 2026-07-02: no overview flyTo).
-      if (icao24 === flightState._trackedIcao) {
-        tracking._clearTracking(false, { evicted: true });
-      }
-
-      flightState._billboardCollection.remove(bb);
-      flightState._billboards.delete(icao24);
-      rendering._releaseModel(icao24); // aged-out aircraft: drop its 3D model (no orphan / cap leak)
-      records.forget(icao24);
-      flightState._cullPositions.delete(icao24);
-      flightState._positionHistory.delete(icao24);
-      flightState._displayCourse.delete(icao24);
-      flightState._groundSnap.forget(icao24);
-      flightState._displayFloorState.delete(icao24);
+      evictContact(icao24);
     }
 
     // Fresh courses arrived — force a rotation pass on the next fleet tick

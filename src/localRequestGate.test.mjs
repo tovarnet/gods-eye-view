@@ -54,6 +54,38 @@ test('a reverse-proxy signal header is refused', () => {
   assert.equal(admitSameSiteRequest({ ...same, proxyHeaders: { 'x-forwarded-for': '' } }).ok, true);
 });
 
+
+test('trusted reverse proxy admits exact same-origin browser traffic', () => {
+  const r = admitSameSiteRequest({
+    hostHeader: 'atlas.tovarnet.com.mx',
+    protocol: 'https:',
+    origin: 'https://atlas.tovarnet.com.mx',
+    secFetchSite: 'same-origin',
+    proxyHeaders: {
+      'x-forwarded-for': '203.0.113.10',
+      'x-forwarded-proto': 'https',
+    },
+    allowProxy: true,
+  });
+  assert.equal(r.ok, true);
+});
+
+test('trusted reverse proxy still refuses cross-site browser traffic', () => {
+  const r = admitSameSiteRequest({
+    hostHeader: 'atlas.tovarnet.com.mx',
+    protocol: 'https:',
+    origin: 'https://evil.example',
+    secFetchSite: 'cross-site',
+    proxyHeaders: {
+      'x-forwarded-for': '203.0.113.10',
+      'x-forwarded-proto': 'https',
+    },
+    allowProxy: true,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 403);
+});
+
 test('same-origin Origin with Sec-Fetch-Site same-origin is admitted', () => {
   assert.equal(admitSameSiteRequest(same).ok, true);
 });
