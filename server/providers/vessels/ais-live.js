@@ -114,7 +114,22 @@ export function aisLiveProxy() {
           AISSTREAM_CACHE_MAX,
           AISSTREAM_CACHE_MAX,
         );
-        const rows = aisStreamRows(maxRows);
+        const lat = Number(incoming.searchParams.get('lat'));
+        const lon = Number(incoming.searchParams.get('lon'));
+        const radiusKm = Number(incoming.searchParams.get('radius_km'));
+        const area =
+          Number.isFinite(lat) &&
+          lat >= -90 &&
+          lat <= 90 &&
+          Number.isFinite(lon) &&
+          lon >= -180 &&
+          lon <= 180 &&
+          Number.isFinite(radiusKm) &&
+          radiusKm > 0 &&
+          radiusKm <= 1000
+            ? { lat, lon, radiusKm }
+            : null;
+        const rows = aisStreamRows(maxRows, area);
 
         const feed = aisStreamStatusSnapshot();
 
